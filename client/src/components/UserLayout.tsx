@@ -85,18 +85,18 @@ export default function UserLayout({ children }: { children: React.ReactNode }) 
           {navItems.map((item) => {
             const active = location === item.href || (item.href !== "/" && location.startsWith(item.href));
             return (
-              <Link key={item.href} href={item.href}>
-                <a
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                    active
-                      ? "bg-primary text-primary-foreground"
-                      : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                  }`}
-                  onClick={() => setMobileOpen(false)}
-                >
-                  <item.icon className="w-4 h-4 flex-shrink-0" />
-                  {item.label}
-                </a>
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  active
+                    ? "bg-primary text-primary-foreground"
+                    : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                }`}
+                onClick={() => setMobileOpen(false)}
+              >
+                <item.icon className="w-4 h-4 flex-shrink-0" />
+                {item.label}
               </Link>
             );
           })}
@@ -105,11 +105,12 @@ export default function UserLayout({ children }: { children: React.ReactNode }) 
         {/* Admin link */}
         {user?.role === "admin" && (
           <div className="px-4 pt-2 border-t border-sidebar-border mt-2">
-            <Link href="/admin">
-              <a className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-primary hover:bg-sidebar-accent transition-colors">
-                <Shield className="w-4 h-4" />
-                后台管理
-              </a>
+            <Link
+              href="/admin"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-primary hover:bg-sidebar-accent transition-colors"
+            >
+              <Shield className="w-4 h-4" />
+              后台管理
             </Link>
           </div>
         )}
@@ -138,13 +139,17 @@ export default function UserLayout({ children }: { children: React.ReactNode }) 
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
               <DropdownMenuItem asChild>
-                <Link href="/exchange-api"><a className="flex items-center gap-2 w-full"><Settings className="w-4 h-4" />API绑定</a></Link>
+                <Link href="/exchange-api" className="flex items-center gap-2 w-full">
+                  <Settings className="w-4 h-4" />API绑定
+                </Link>
               </DropdownMenuItem>
               {user?.role === "admin" && (
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
-                    <Link href="/admin"><a className="flex items-center gap-2 w-full text-primary"><Shield className="w-4 h-4" />后台管理</a></Link>
+                    <Link href="/admin" className="flex items-center gap-2 w-full text-primary">
+                      <Shield className="w-4 h-4" />后台管理
+                    </Link>
                   </DropdownMenuItem>
                 </>
               )}

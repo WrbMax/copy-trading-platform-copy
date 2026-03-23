@@ -63,10 +63,10 @@ export default function Dashboard() {
           </div>
           <div className="flex gap-2">
             <Button asChild size="sm" variant="outline" className="bg-transparent">
-              <Link href="/funds"><a className="flex items-center gap-1"><CreditCard className="w-4 h-4" />充值</a></Link>
+              <Link href="/funds" className="flex items-center gap-1"><CreditCard className="w-4 h-4" />充值</Link>
             </Button>
             <Button asChild size="sm">
-              <Link href="/invite"><a className="flex items-center gap-1"><Gift className="w-4 h-4" />邀请</a></Link>
+              <Link href="/invite" className="flex items-center gap-1"><Gift className="w-4 h-4" />邀请</Link>
             </Button>
           </div>
         </div>
@@ -93,7 +93,7 @@ export default function Dashboard() {
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">启用中的策略</CardTitle>
               <Button asChild variant="ghost" size="sm" className="text-primary text-xs">
-                <Link href="/strategy"><a>管理策略 →</a></Link>
+                <Link href="/strategy">管理策略 →</Link>
               </Button>
             </div>
           </CardHeader>
@@ -103,7 +103,7 @@ export default function Dashboard() {
                 <Zap className="w-10 h-10 mx-auto mb-3 opacity-30" />
                 <p className="text-sm">暂无启用的策略</p>
                 <Button asChild size="sm" className="mt-3">
-                  <Link href="/strategy"><a>去开启策略</a></Link>
+                  <Link href="/strategy">去开启策略</Link>
                 </Button>
               </div>
             ) : (
@@ -141,12 +141,14 @@ export default function Dashboard() {
             { href: "/earnings", icon: TrendingUp, label: "我的收益", desc: "收益分成明细" },
             { href: "/funds", icon: CreditCard, label: "充值提现", desc: "资金管理" },
           ].map((item) => (
-            <Link key={item.href} href={item.href}>
-              <a className="block p-4 rounded-xl bg-card border border-border hover:border-primary/50 hover:bg-primary/5 transition-all group">
-                <item.icon className="w-6 h-6 text-primary mb-2 group-hover:scale-110 transition-transform" />
-                <p className="text-sm font-medium text-foreground">{item.label}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{item.desc}</p>
-              </a>
+            <Link
+              key={item.href}
+              href={item.href}
+              className="block p-4 rounded-xl bg-card border border-border hover:border-primary/50 hover:bg-primary/5 transition-all group"
+            >
+              <item.icon className="w-6 h-6 text-primary mb-2 group-hover:scale-110 transition-transform" />
+              <p className="text-sm font-medium text-foreground">{item.label}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{item.desc}</p>
             </Link>
           ))}
         </div>

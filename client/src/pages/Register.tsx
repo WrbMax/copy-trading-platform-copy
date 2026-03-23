@@ -137,7 +137,7 @@ export default function Register() {
 
             <p className="text-center text-sm text-muted-foreground mt-4">
               已有账户？{" "}
-              <Link href="/login"><a className="text-primary hover:underline font-medium">立即登录</a></Link>
+              <Link href="/login" className="text-primary hover:underline font-medium">立即登录</Link>
             </p>
           </CardContent>
         </Card>

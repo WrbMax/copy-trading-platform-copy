@@ -82,9 +82,7 @@ export default function Login() {
                 </div>
               </div>
               <div className="flex justify-end">
-                <Link href="/forgot-password">
-                  <a className="text-sm text-primary hover:underline">忘记密码？</a>
-                </Link>
+                <Link href="/forgot-password" className="text-sm text-primary hover:underline">忘记密码？</Link>
               </div>
               <Button type="submit" className="w-full" disabled={loginMutation.isPending}>
                 {loginMutation.isPending ? "登录中..." : "登录"}
@@ -92,7 +90,7 @@ export default function Login() {
             </form>
             <p className="text-center text-sm text-muted-foreground mt-4">
               还没有账户？{" "}
-              <Link href="/register"><a className="text-primary hover:underline font-medium">立即注册</a></Link>
+              <Link href="/register" className="text-primary hover:underline font-medium">立即注册</Link>
             </p>
           </CardContent>
         </Card>

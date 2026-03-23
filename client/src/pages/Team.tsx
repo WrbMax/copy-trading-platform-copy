@@ -18,7 +18,7 @@ export default function Team() {
             <p className="text-muted-foreground text-sm mt-1">查看您的团队规模和收益分成情况</p>
           </div>
           <Button asChild size="sm">
-            <Link href="/invite"><a className="flex items-center gap-1"><UserPlus className="w-4 h-4" />邀请成员</a></Link>
+            <Link href="/invite" className="flex items-center gap-1"><UserPlus className="w-4 h-4" />邀请成员</Link>
           </Button>
         </div>
 

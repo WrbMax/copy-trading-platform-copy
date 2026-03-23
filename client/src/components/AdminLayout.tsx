@@ -64,25 +64,26 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           {navItems.map((item) => {
             const active = location === item.href || (item.href !== "/admin" && location.startsWith(item.href));
             return (
-              <Link key={item.href} href={item.href}>
-                <a
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                     active ? "bg-primary text-primary-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent"
                   }`}
-                  onClick={() => setMobileOpen(false)}
-                >
-                  <item.icon className="w-4 h-4 flex-shrink-0" />
-                  {item.label}
-                </a>
+                onClick={() => setMobileOpen(false)}
+              >
+                <item.icon className="w-4 h-4 flex-shrink-0" />
+                {item.label}
               </Link>
             );
           })}
         </nav>
         <div className="px-3 pt-2 border-t border-sidebar-border mt-2">
-          <Link href="/">
-            <a className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-muted-foreground hover:bg-sidebar-accent transition-colors">
-              <LineChart className="w-4 h-4" />返回用户端
-            </a>
+          <Link
+            href="/"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-muted-foreground hover:bg-sidebar-accent transition-colors"
+          >
+            <LineChart className="w-4 h-4" />返回用户端
           </Link>
         </div>
       </aside>

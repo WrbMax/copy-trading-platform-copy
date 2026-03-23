@@ -90,7 +90,7 @@ export default function ForgotPassword() {
               </>
             )}
             <p className="text-center text-sm text-muted-foreground">
-              <Link href="/login"><a className="text-primary hover:underline">返回登录</a></Link>
+              <Link href="/login" className="text-primary hover:underline">返回登录</Link>
             </p>
           </CardContent>
         </Card>

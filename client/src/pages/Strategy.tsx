@@ -82,7 +82,7 @@ export default function Strategy() {
               <p className="font-medium text-sm">请先绑定交易所API</p>
               <p className="text-xs mt-1 opacity-80">开启策略前需要绑定并验证交易所API</p>
               <Button asChild size="sm" variant="outline" className="mt-2 bg-transparent border-destructive/40 text-destructive hover:bg-destructive/10">
-                <Link href="/exchange-api"><a>去绑定API</a></Link>
+                <Link href="/exchange-api">去绑定API</Link>
               </Button>
             </div>
           </div>
