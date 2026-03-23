@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Zap, TrendingUp, Settings, AlertCircle } from "lucide-react";
+import { Zap, TrendingUp, Settings, AlertCircle, Info } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "wouter";
 
@@ -36,6 +36,7 @@ export default function Strategy() {
   });
 
   const activeApis = apis?.filter((a) => a.isActive) ?? [];
+  const allApis = apis ?? [];
 
   const openDialog = (sourceId: number) => {
     const existing = myStrategies?.find((s) => s.signalSourceId === sourceId);
@@ -48,45 +49,35 @@ export default function Strategy() {
   };
 
   const handleMultiplierChange = (val: number) => {
-    const clamped = Math.max(1, Math.min(100, val));
+    const clamped = Math.max(1, Math.min(100, Math.round(val)));
     setMultiplier(clamped);
     setMultiplierInput(clamped.toString());
   };
 
   const handleMultiplierInput = (val: string) => {
     setMultiplierInput(val);
-    const num = parseFloat(val);
+    const num = parseInt(val, 10);
     if (!isNaN(num) && num >= 1 && num <= 100) {
       setMultiplier(num);
     }
   };
 
   const handleSave = (isEnabled: boolean) => {
-    if (!selectedSource || !selectedApi) { toast.error("请选择交易所API"); return; }
-    if (multiplier < 1 || multiplier > 100) { toast.error("倍数范围为 1-100"); return; }
+    if (!selectedApi) { toast.error("请先绑定并选择交易所API"); return; }
+    if (!selectedSource) { toast.error("请选择策略"); return; }
+    if (multiplier < 1 || multiplier > 100) { toast.error("数量倍数范围为 1-100"); return; }
     setStrategyMutation.mutate({ signalSourceId: selectedSource, exchangeApiId: parseInt(selectedApi), multiplier, isEnabled });
   };
+
+  const selectedSourceInfo = sources?.find((s) => s.id === selectedSource);
 
   return (
     <UserLayout>
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold">策略中心</h1>
-          <p className="text-muted-foreground text-sm mt-1">选择策略并设置开仓倍数，系统将自动执行交易</p>
+          <p className="text-muted-foreground text-sm mt-1">选择策略并设置开仓数量倍数，系统将自动执行交易</p>
         </div>
-
-        {activeApis.length === 0 && (
-          <div className="flex items-start gap-3 p-4 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive">
-            <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
-            <div>
-              <p className="font-medium text-sm">请先绑定交易所API</p>
-              <p className="text-xs mt-1 opacity-80">开启策略前需要绑定并验证交易所API</p>
-              <Button asChild size="sm" variant="outline" className="mt-2 bg-transparent border-destructive/40 text-destructive hover:bg-destructive/10">
-                <Link href="/exchange-api">去绑定API</Link>
-              </Button>
-            </div>
-          </div>
-        )}
 
         {/* My Active Strategies */}
         {myStrategies && myStrategies.length > 0 && (
@@ -103,7 +94,7 @@ export default function Strategy() {
                         </div>
                         <div>
                           <p className="font-medium text-sm">{s.signalSource?.name}</p>
-                          <p className="text-xs text-muted-foreground">{s.signalSource?.tradingPair} · {s.exchangeApi?.exchange} · 倍数 {s.multiplier}x</p>
+                          <p className="text-xs text-muted-foreground">{s.signalSource?.tradingPair} · {s.exchangeApi?.exchange} · 数量 {s.multiplier}x</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
@@ -162,7 +153,8 @@ export default function Strategy() {
                         <p className="text-sm font-semibold mt-0.5 text-profit">{source.expectedMonthlyReturnMin}~{source.expectedMonthlyReturnMax}%</p>
                       </div>
                     </div>
-                    <Button className="w-full" size="sm" onClick={() => openDialog(source.id)} disabled={activeApis.length === 0}>
+                    {/* Always allow opening dialog - no disabled state */}
+                    <Button className="w-full" size="sm" onClick={() => openDialog(source.id)}>
                       <Zap className="w-4 h-4 mr-1" />
                       {myStrategy ? "修改设置" : "开启策略"}
                     </Button>
@@ -175,29 +167,57 @@ export default function Strategy() {
 
         {/* Config Dialog */}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogContent className="bg-card border-border">
+          <DialogContent className="bg-card border-border max-w-md">
             <DialogHeader>
-              <DialogTitle>策略设置</DialogTitle>
+              <DialogTitle className="flex items-center gap-2">
+                {selectedSourceInfo && (
+                  <span className="w-7 h-7 bg-primary/15 rounded-lg flex items-center justify-center text-primary text-xs font-bold">
+                    {selectedSourceInfo.symbol.slice(0, 3)}
+                  </span>
+                )}
+                策略设置 — {selectedSourceInfo?.name}
+              </DialogTitle>
             </DialogHeader>
             <div className="space-y-5 mt-2">
+              {/* API Warning inside dialog */}
+              {activeApis.length === 0 && (
+                <div className="flex items-start gap-3 p-3 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive">
+                  <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="font-medium text-sm">请先绑定交易所API</p>
+                    <p className="text-xs mt-1 opacity-80">您可以先预设倍数，绑定API后即可启用策略</p>
+                    <Button asChild size="sm" variant="outline" className="mt-2 bg-transparent border-destructive/40 text-destructive hover:bg-destructive/10">
+                      <Link href="/exchange-api">去绑定API</Link>
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* API Selection */}
               <div className="space-y-2">
                 <label className="text-sm font-medium">选择交易所API</label>
-                <Select value={selectedApi} onValueChange={setSelectedApi}>
-                  <SelectTrigger className="bg-input border-border"><SelectValue placeholder="选择API" /></SelectTrigger>
-                  <SelectContent className="bg-card border-border">
-                    {activeApis.map((a) => (
-                      <SelectItem key={a.id} value={a.id.toString()}>
-                        {a.label || a.exchange} ({a.exchange})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {activeApis.length > 0 ? (
+                  <Select value={selectedApi} onValueChange={setSelectedApi}>
+                    <SelectTrigger className="bg-input border-border"><SelectValue placeholder="选择API" /></SelectTrigger>
+                    <SelectContent className="bg-card border-border">
+                      {activeApis.map((a) => (
+                        <SelectItem key={a.id} value={a.id.toString()}>
+                          {a.label || a.exchange} ({a.exchange})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="p-3 rounded-lg bg-secondary/50 text-sm text-muted-foreground">
+                    暂无可用API，请先前往 API绑定 页面添加
+                  </div>
+                )}
               </div>
 
-              {/* Multiplier Section */}
+              {/* Multiplier Section - Always visible */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium">开仓倍数</label>
+                  <label className="text-sm font-medium">开仓数量倍数</label>
                   <div className="flex items-center gap-2">
                     <Input
                       type="number"
@@ -206,7 +226,7 @@ export default function Strategy() {
                       value={multiplierInput}
                       onChange={(e) => handleMultiplierInput(e.target.value)}
                       onBlur={() => {
-                        const num = parseFloat(multiplierInput);
+                        const num = parseInt(multiplierInput, 10);
                         if (isNaN(num) || num < 1) handleMultiplierChange(1);
                         else if (num > 100) handleMultiplierChange(100);
                         else handleMultiplierChange(num);
@@ -220,7 +240,7 @@ export default function Strategy() {
                 {/* Slider */}
                 <Slider min={1} max={100} step={1} value={[multiplier]} onValueChange={([v]) => handleMultiplierChange(v)} className="w-full" />
                 <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>1x（最小）</span><span>100x（最大）</span>
+                  <span>1x（1个）</span><span>100x（100个）</span>
                 </div>
 
                 {/* Quick Select Buttons */}
@@ -242,18 +262,26 @@ export default function Strategy() {
                 </div>
               </div>
 
-              <div className="p-3 rounded-lg bg-secondary/50 text-xs text-muted-foreground">
-                <TrendingUp className="w-4 h-4 inline mr-1 text-primary" />
-                倍数越大，实际开仓数量越大，盈亏也成比例放大。请根据风险承受能力设置。
+              {/* Info */}
+              <div className="p-3 rounded-lg bg-secondary/50 text-xs text-muted-foreground space-y-1">
+                <p><TrendingUp className="w-4 h-4 inline mr-1 text-primary" />数量倍数表示相对于信号源的开仓个数倍率。例如信号源开仓1个ETH，设置2x则开仓2个ETH。</p>
+                {selectedSourceInfo && (
+                  <p><Info className="w-4 h-4 inline mr-1 text-primary" />信号源开仓1个{selectedSourceInfo.symbol}，您将开仓 {multiplier} 个{selectedSourceInfo.symbol}</p>
+                )}
               </div>
+
+              {/* Action Buttons */}
               <div className="flex gap-3">
-                <Button variant="outline" className="flex-1 bg-transparent" onClick={() => handleSave(false)} disabled={setStrategyMutation.isPending}>
+                <Button variant="outline" className="flex-1 bg-transparent" onClick={() => handleSave(false)} disabled={setStrategyMutation.isPending || activeApis.length === 0}>
                   保存（暂不启用）
                 </Button>
-                <Button className="flex-1" onClick={() => handleSave(true)} disabled={setStrategyMutation.isPending}>
+                <Button className="flex-1" onClick={() => handleSave(true)} disabled={setStrategyMutation.isPending || activeApis.length === 0}>
                   {setStrategyMutation.isPending ? "保存中..." : "保存并启用"}
                 </Button>
               </div>
+              {activeApis.length === 0 && (
+                <p className="text-xs text-center text-muted-foreground">绑定交易所API后即可保存策略</p>
+              )}
             </div>
           </DialogContent>
         </Dialog>
