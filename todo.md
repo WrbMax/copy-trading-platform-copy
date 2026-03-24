@@ -94,3 +94,6 @@
 - [x] 过滤cancelled订单不展示给用户
 - [ ] 补全有效订单的缺失数据（从交易所API查询）
 - [x] 排查生产服务器平仓后订单数据不完整问题（Binance orderId大整数精度丢失）
+- [x] 配置Nginx支持winningwin.pro根路径
+- [x] 申请SSL证书配置HTTPS
+- [x] 重新构建前端（base path改为/）并部署到winningwin.pro
