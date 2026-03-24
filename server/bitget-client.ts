@@ -70,6 +70,26 @@ export interface BitgetOrderResult {
   clientOid: string;
 }
 
+/** Query a specific Bitget order to get fill details */
+export async function getBitgetOrderDetail(
+  creds: BitgetCredentials,
+  symbol: string,
+  orderId: string
+): Promise<{ avgPrice: string; filledQty: string; fee: string; profit: string; status: string }> {
+  const productType = "USDT-FUTURES";
+  const data = await bitgetRequest<Array<{ priceAvg: string; baseVolume: string; fee: string; profit: string; state: string }>>(
+    creds, "GET", "/api/v2/mix/order/detail", { symbol, orderId, productType }
+  );
+  const order = Array.isArray(data) ? data[0] : (data as any);
+  return {
+    avgPrice: order?.priceAvg || "0",
+    filledQty: order?.baseVolume || "0",
+    fee: order?.fee || "0",
+    profit: order?.profit || "0",
+    status: order?.state || "unknown",
+  };
+}
+
 /**
  * Place a Bitget USDT perpetual order.
  * side: "open_long" | "open_short" | "close_long" | "close_short"

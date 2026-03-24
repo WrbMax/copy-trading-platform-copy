@@ -23,6 +23,9 @@ import {
   createCopyOrder,
   updateCopyOrder,
   listCopyOrdersBySignalLog,
+  findUserOpenOrder,
+  getUserById,
+  updateUser,
 } from "./db";
 import { decrypt } from "./crypto";
 import {
@@ -38,6 +41,7 @@ import {
   closeBinancePosition,
   getBinanceInstrument,
   toBinanceSymbol,
+  getBinanceOrderDetail,
 } from "./binance-client";
 import {
   BybitCredentials,
@@ -45,6 +49,7 @@ import {
   closeBybitPosition,
   getBybitInstrument,
   toBybitSymbol,
+  getBybitOrderDetail,
 } from "./bybit-client";
 import {
   BitgetCredentials,
@@ -54,6 +59,7 @@ import {
   closeBitgetShort,
   getBitgetInstrument,
   toBitgetSymbol,
+  getBitgetOrderDetail,
 } from "./bitget-client";
 import {
   GateCredentials,
@@ -63,7 +69,10 @@ import {
   closeGateShort,
   getGateInstrument,
   toGateContract,
+  getGateOrderDetail,
 } from "./gate-client";
+import { getOkxOrderDetail } from "./okx-client";
+import { processRevenueShare } from "./revenue-share";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -429,12 +438,157 @@ async function executeCopyTrades(sourceId: number, change: PositionChange) {
     const orderTime = Date.now() - signalTime;
     console.log(`[CopyEngine] ✅ User ${us.userId}: ${change.action} ${sz} on ${change.instId}, ordId=${exchangeOrderId}, latency=${orderTime}ms`);
 
-    // Update the copy order to 'open' status
-    await updateCopyOrder(orderId, {
-      status: "open",
-      exchangeOrderId: exchangeOrderId,
-      openTime: new Date(),
-    });
+    const isCloseAction = ["close_long", "close_short", "reduce_long", "reduce_short"].includes(change.action);
+
+    if (isCloseAction && exchangeOrderId) {
+      // ── Close order: finalize PnL and trigger revenue share ──
+      await updateCopyOrder(orderId, {
+        status: "closed",
+        exchangeOrderId: exchangeOrderId,
+        closeTime: new Date(),
+      });
+
+      // Wait briefly for exchange settlement
+      await new Promise(r => setTimeout(r, 2000));
+
+      try {
+        let closePrice = 0;
+        let fee = 0;
+        let realizedPnl = 0; // Direct from exchange API
+
+        // Query exchange for close order fill details — use exchange-provided realizedPnl
+        if (userExchange === "binance") {
+          const symbol = toBinanceSymbol(change.instId);
+          const detail = await getBinanceOrderDetail(
+            { apiKey: decrypt(api.apiKeyEncrypted), secretKey: decrypt(api.secretKeyEncrypted) },
+            symbol, exchangeOrderId
+          );
+          closePrice = parseFloat(detail.avgPrice) || 0;
+          fee = Math.abs(parseFloat(detail.commission) || 0);
+          realizedPnl = parseFloat(detail.realizedPnl) || 0;
+        } else if (userExchange === "bybit") {
+          const symbol = toBybitSymbol(change.instId);
+          const detail = await getBybitOrderDetail(
+            { apiKey: decrypt(api.apiKeyEncrypted), secretKey: decrypt(api.secretKeyEncrypted) },
+            symbol, exchangeOrderId
+          );
+          closePrice = parseFloat(detail.avgPrice) || 0;
+          fee = Math.abs(parseFloat(detail.cumExecFee) || 0);
+          // Bybit order API doesn't return PnL directly; will fallback to manual calc below
+        } else if (userExchange === "bitget") {
+          const symbol = toBitgetSymbol(change.instId);
+          const detail = await getBitgetOrderDetail(
+            { apiKey: decrypt(api.apiKeyEncrypted), secretKey: decrypt(api.secretKeyEncrypted), passphrase: api.passphraseEncrypted ? decrypt(api.passphraseEncrypted) : "" },
+            symbol, exchangeOrderId
+          );
+          closePrice = parseFloat(detail.avgPrice) || 0;
+          fee = Math.abs(parseFloat(detail.fee) || 0);
+          realizedPnl = parseFloat(detail.profit) || 0;
+        } else if (userExchange === "gate") {
+          const detail = await getGateOrderDetail(
+            { apiKey: decrypt(api.apiKeyEncrypted), secretKey: decrypt(api.secretKeyEncrypted) },
+            exchangeOrderId
+          );
+          closePrice = parseFloat(detail.fillPrice) || 0;
+          fee = Math.abs(parseFloat(detail.fee) || 0);
+          realizedPnl = parseFloat(detail.pnl) || 0;
+        } else {
+          // OKX
+          const detail = await getOkxOrderDetail(
+            { apiKey: decrypt(api.apiKeyEncrypted), secretKey: decrypt(api.secretKeyEncrypted), passphrase: api.passphraseEncrypted ? decrypt(api.passphraseEncrypted) : "" },
+            change.instId, exchangeOrderId
+          );
+          closePrice = parseFloat(detail.avgPx) || 0;
+          fee = Math.abs(parseFloat(detail.fee) || 0);
+          realizedPnl = parseFloat(detail.pnl) || 0;
+        }
+
+        // Find the matching open order
+        const openOrder = await findUserOpenOrder(us.userId, change.instId, change.action);
+
+        // Use exchange-provided realizedPnl if available; otherwise fallback to manual calculation
+        let rawPnl = realizedPnl;
+        if (rawPnl === 0 && openOrder && closePrice > 0) {
+          const openPrice = parseFloat(openOrder.openPrice || "0");
+          const qty = parseFloat(openOrder.actualQuantity || sz);
+          // For Binance/Bybit: qty is in base asset (e.g. ETH)
+          // For OKX/Bitget/Gate: qty is in contracts, multiply by ctVal
+          let pnlQty = qty;
+          if (userExchange === "okx" || userExchange === "bitget" || userExchange === "gate") {
+            pnlQty = qty * ctVal;
+          }
+          if (change.action === "close_long" || change.action === "reduce_long") {
+            rawPnl = (closePrice - openPrice) * pnlQty;
+          } else {
+            rawPnl = (openPrice - closePrice) * pnlQty;
+          }
+        }
+
+        const netPnl = rawPnl - fee;
+
+        if (openOrder) {
+          // Update the original open order to closed with PnL
+          await updateCopyOrder(openOrder.id, {
+            closePrice: closePrice.toFixed(8),
+            closeTime: new Date(),
+            closeOrderId: exchangeOrderId,
+            realizedPnl: rawPnl.toFixed(8),
+            fee: fee.toFixed(8),
+            netPnl: netPnl.toFixed(8),
+            status: "closed",
+          });
+        }
+
+        // Update the close order record with price and PnL info
+        await updateCopyOrder(orderId, {
+          openPrice: closePrice.toFixed(8),
+          closePrice: closePrice.toFixed(8),
+          realizedPnl: rawPnl.toFixed(8),
+          fee: fee.toFixed(8),
+          netPnl: netPnl.toFixed(8),
+        });
+
+        // Update user profit stats
+        const trader = await getUserById(us.userId);
+        if (trader) {
+          if (netPnl > 0) {
+            const newProfit = parseFloat(trader.totalProfit || "0") + netPnl;
+            await updateUser(us.userId, { totalProfit: newProfit.toFixed(8) });
+          } else if (netPnl < 0) {
+            const newLoss = parseFloat(trader.totalLoss || "0") + Math.abs(netPnl);
+            await updateUser(us.userId, { totalLoss: newLoss.toFixed(8) });
+          }
+        }
+
+        console.log(`[CopyEngine] 📊 User ${us.userId}: realizedPnl=${rawPnl.toFixed(4)}, fee=${fee.toFixed(4)}, netPnl=${netPnl.toFixed(4)}, closePrice=${closePrice}`);
+
+        // Trigger revenue share for profitable orders
+        const revenueOrderId = openOrder ? openOrder.id : orderId;
+        if (netPnl > 0) {
+          try {
+            await processRevenueShare({
+              copyOrderId: revenueOrderId,
+              traderId: us.userId,
+              netPnl,
+            });
+            console.log(`[CopyEngine] 💰 Revenue share processed for user ${us.userId}, netPnl=${netPnl.toFixed(4)}`);
+          } catch (rsErr: unknown) {
+            const rsMsg = rsErr instanceof Error ? rsErr.message : String(rsErr);
+            console.error(`[CopyEngine] ⚠️ Revenue share failed for user ${us.userId}: ${rsMsg}`);
+          }
+        }
+      } catch (pnlErr: unknown) {
+        const pnlMsg = pnlErr instanceof Error ? pnlErr.message : String(pnlErr);
+        console.error(`[CopyEngine] ⚠️ PnL finalization failed for user ${us.userId}: ${pnlMsg}`);
+      }
+    } else {
+      // Open order: set to 'open' status
+      await updateCopyOrder(orderId, {
+        status: "open",
+        exchangeOrderId: exchangeOrderId,
+        openTime: new Date(),
+      });
+    }
     return true;
   }
 

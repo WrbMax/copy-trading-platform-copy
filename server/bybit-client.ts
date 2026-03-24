@@ -117,6 +117,24 @@ export async function closeBybitPosition(
   });
 }
 
+/** Query a specific Bybit order to get fill details */
+export async function getBybitOrderDetail(
+  creds: BybitCredentials,
+  symbol: string,
+  orderId: string
+): Promise<{ avgPrice: string; cumExecQty: string; cumExecFee: string; status: string }> {
+  const data = await bybitRequest<{ list: Array<{ avgPrice: string; cumExecQty: string; cumExecFee: string; orderStatus: string }> }>(
+    creds, "GET", "/v5/order/realtime", { category: "linear", symbol, orderId }
+  );
+  const order = data.list?.[0];
+  return {
+    avgPrice: order?.avgPrice || "0",
+    cumExecQty: order?.cumExecQty || "0",
+    cumExecFee: order?.cumExecFee || "0",
+    status: order?.orderStatus || "UNKNOWN",
+  };
+}
+
 /** Get Bybit instrument info for quantity precision */
 export async function getBybitInstrument(
   symbol: string

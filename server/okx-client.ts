@@ -154,6 +154,28 @@ export async function closePosition(
 }
 
 /**
+ * Query a specific OKX order to get fill details.
+ */
+export async function getOkxOrderDetail(
+  creds: OkxCredentials,
+  instId: string,
+  ordId: string
+): Promise<{ avgPx: string; fillSz: string; fee: string; pnl: string; state: string }> {
+  const path = `/api/v5/trade/order?instId=${instId}&ordId=${ordId}`;
+  const res = await okxRequest<Array<{ avgPx: string; fillSz: string; fee: string; pnl: string; state: string }>>(
+    creds, "GET", path
+  );
+  const order = res.data?.[0];
+  return {
+    avgPx: order?.avgPx || "0",
+    fillSz: order?.fillSz || "0",
+    fee: order?.fee || "0",
+    pnl: order?.pnl || "0",
+    state: order?.state || "unknown",
+  };
+}
+
+/**
  * Get instrument info (lot size, min size etc.)
  */
 // Cache instrument info for 5 minutes to avoid repeated API calls

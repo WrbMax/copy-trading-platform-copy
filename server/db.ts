@@ -317,6 +317,22 @@ export async function updateCopyOrder(id: number, data: Partial<typeof copyOrder
   await db.update(copyOrders).set(data).where(eq(copyOrders.id, id));
 }
 
+export async function findUserOpenOrder(userId: number, symbol: string, action: string) {
+  const db = await getDb();
+  if (!db) return null;
+  // For close_long, find the matching open_long order; for close_short, find open_short
+  const openAction = action === "close_long" || action === "reduce_long" ? "open_long" : "open_short";
+  const results = await db.select().from(copyOrders).where(
+    and(
+      eq(copyOrders.userId, userId),
+      eq(copyOrders.symbol, symbol),
+      eq(copyOrders.action, openAction),
+      eq(copyOrders.status, "open")
+    )
+  ).orderBy(desc(copyOrders.createdAt)).limit(1);
+  return results[0] || null;
+}
+
 export async function listCopyOrdersBySignalLog(signalLogId: number, userId?: number) {
   const db = await getDb();
   if (!db) return [];

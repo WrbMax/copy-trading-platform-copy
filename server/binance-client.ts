@@ -214,6 +214,37 @@ export async function getBinanceBalance(
 }
 
 /**
+ * Query a specific Binance futures order to get fill details.
+ */
+export async function getBinanceOrderDetail(
+  creds: BinanceCredentials,
+  symbol: string,
+  orderId: string
+): Promise<{ avgPrice: string; executedQty: string; realizedPnl: string; commission: string; status: string }> {
+  const data = await binanceRequest<{
+    avgPrice: string; executedQty: string; realizedPnl: string; status: string;
+  }>(creds, "GET", "/fapi/v1/order", { symbol, orderId });
+  // Also get trades for commission
+  let commission = "0";
+  try {
+    const trades = await binanceRequest<Array<{ commission: string; commissionAsset: string }>>(
+      creds, "GET", "/fapi/v1/userTrades", { symbol, orderId, limit: 10 }
+    );
+    commission = trades
+      .filter(t => t.commissionAsset === "USDT")
+      .reduce((sum, t) => sum + parseFloat(t.commission), 0)
+      .toFixed(8);
+  } catch { /* ignore trade query errors */ }
+  return {
+    avgPrice: data.avgPrice || "0",
+    executedQty: data.executedQty || "0",
+    realizedPnl: data.realizedPnl || "0",
+    commission,
+    status: data.status || "UNKNOWN",
+  };
+}
+
+/**
  * Get Binance futures instrument info (for contract size calculation).
  * Cached for 5 minutes to avoid repeated API calls.
  */

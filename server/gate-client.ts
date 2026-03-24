@@ -117,6 +117,23 @@ export async function closeGateShort(creds: GateCredentials, instId: string, qty
   return placeGateOrder(creds, instId, qty, true);
 }
 
+/** Query a specific Gate.io order to get fill details */
+export async function getGateOrderDetail(
+  creds: GateCredentials,
+  orderId: string
+): Promise<{ fillPrice: string; size: number; fee: string; pnl: string; status: string }> {
+  const data = await gateRequest<{ fill_price: string; size: number; fee: string; pnl: string; status: string }>(
+    creds, "GET", `/api/v4/futures/usdt/orders/${orderId}`
+  );
+  return {
+    fillPrice: data?.fill_price || "0",
+    size: data?.size || 0,
+    fee: data?.fee || "0",
+    pnl: data?.pnl || "0",
+    status: data?.status || "unknown",
+  };
+}
+
 /** Get Gate.io contract info */
 export async function getGateInstrument(
   contract: string
