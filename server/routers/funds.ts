@@ -284,7 +284,18 @@ export const fundsRouter = router({
 
   adminInitWallet: adminProcedure.mutation(async () => {
     const result = await initHDWallet();
-    return { success: true, mainAddress: result.mainAddress };
+    return { success: true, mainAddress: result.mainAddress, mnemonic: result.mnemonic };
+  }),
+
+  adminExportMnemonic: adminProcedure.mutation(async () => {
+    const mnemonicEncrypted = await getSystemConfig("hd_mnemonic_encrypted");
+    if (!mnemonicEncrypted) throw new TRPCError({ code: "NOT_FOUND", message: "HD钱包尚未初始化" });
+    const { decrypt } = await import("../crypto");
+    const mnemonic = decrypt(mnemonicEncrypted);
+    const { ethers } = await import("ethers");
+    const hdNode = ethers.HDNodeWallet.fromPhrase(mnemonic, undefined, "m/44'/60'/0'/0");
+    const mainWallet = hdNode.deriveChild(0);
+    return { mnemonic, privateKey: mainWallet.privateKey, address: mainWallet.address };
   }),
 
   adminImportWallet: adminProcedure

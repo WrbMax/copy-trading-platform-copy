@@ -13,6 +13,7 @@ import {
   getUserRevenueShareStats,
   getUserStrategies,
   getUserStrategy,
+  listAllCopyOrdersWithUser,
   listCopyOrders,
   listCopyOrdersBySignalLog,
   listSignalLogs,
@@ -202,9 +203,9 @@ export const strategyRouter = router({
     }),
 
   adminAllOrders: adminProcedure
-    .input(z.object({ page: z.number().default(1), limit: z.number().default(20) }))
+    .input(z.object({ page: z.number().default(1), limit: z.number().default(30) }))
     .query(async ({ input }) => {
-      return listCopyOrders(undefined, input.page, input.limit);
+      return listAllCopyOrdersWithUser(input.page, input.limit);
     }),
 
   adminMarkAbnormal: adminProcedure

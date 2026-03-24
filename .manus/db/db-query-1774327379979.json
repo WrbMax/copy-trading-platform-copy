@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE IF NOT EXISTS `deposit_addresses` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`userId` int NOT NULL,\n\t`address` varchar(128) NOT NULL,\n\t`derivationIndex` int NOT NULL,\n\t`network` varchar(32) NOT NULL DEFAULT 'BSC',\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\tCONSTRAINT `deposit_addresses_id` PRIMARY KEY(`id`),\n\tCONSTRAINT `deposit_addresses_address_unique` UNIQUE(`address`)\n)",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2yRRhmQmjmz9LMP.root --database 3xjoeN6gTpdmQoJAnkq7pe --execute CREATE TABLE IF NOT EXISTS `deposit_addresses` (\n\t`id` int AUTO_INCREMENT NOT NULL,\n\t`userId` int NOT NULL,\n\t`address` varchar(128) NOT NULL,\n\t`derivationIndex` int NOT NULL,\n\t`network` varchar(32) NOT NULL DEFAULT 'BSC',\n\t`createdAt` timestamp NOT NULL DEFAULT (now()),\n\tCONSTRAINT `deposit_addresses_id` PRIMARY KEY(`id`),\n\tCONSTRAINT `deposit_addresses_address_unique` UNIQUE(`address`)\n)",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1651
+}

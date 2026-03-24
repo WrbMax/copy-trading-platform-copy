@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE `signal_logs` ADD COLUMN IF NOT EXISTS `totalUsers` int DEFAULT 0;\nALTER TABLE `signal_logs` ADD COLUMN IF NOT EXISTS `successCount` int DEFAULT 0;\nALTER TABLE `signal_logs` ADD COLUMN IF NOT EXISTS `failCount` int DEFAULT 0;\nALTER TABLE `signal_logs` ADD COLUMN IF NOT EXISTS `executionTimeMs` int",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2yRRhmQmjmz9LMP.root --database 3xjoeN6gTpdmQoJAnkq7pe --execute ALTER TABLE `signal_logs` ADD COLUMN IF NOT EXISTS `totalUsers` int DEFAULT 0;\nALTER TABLE `signal_logs` ADD COLUMN IF NOT EXISTS `successCount` int DEFAULT 0;\nALTER TABLE `signal_logs` ADD COLUMN IF NOT EXISTS `failCount` int DEFAULT 0;\nALTER TABLE `signal_logs` ADD COLUMN IF NOT EXISTS `executionTimeMs` int",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 2265
+}

@@ -52,11 +52,25 @@ export default function Funds() {
     onError: (e) => toast.error(e.message),
   });
 
-  const copyAddress = () => {
-    if (depositAddr?.address) {
-      navigator.clipboard.writeText(depositAddr.address);
-      toast.success("地址已复制到剪贴板");
+  const copyToClipboard = (text: string) => {
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(() => toast.success("已复制到剪贴板")).catch(() => fallbackCopy(text));
+    } else {
+      fallbackCopy(text);
     }
+  };
+  const fallbackCopy = (text: string) => {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); toast.success("已复制到剪贴板"); } catch { toast.error("复制失败，请手动复制"); }
+    document.body.removeChild(ta);
+  };
+  const copyAddress = () => {
+    if (depositAddr?.address) copyToClipboard(depositAddr.address);
   };
 
   return (

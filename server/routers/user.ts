@@ -4,6 +4,7 @@ import {
   getAdminDashboardStats,
   getExchangeApisByUserId,
   getSystemConfig,
+  getMyInvitees,
   getTeamStats,
   getUserById,
   listRevenueShareRecords,
@@ -41,6 +42,27 @@ export const userRouter = router({
     .input(z.object({ page: z.number().default(1), limit: z.number().default(20) }))
     .query(async ({ input, ctx }) => {
       return listRevenueShareRecords(ctx.user.id, input.page, input.limit);
+    }),
+
+  myInvitees: protectedProcedure.query(async ({ ctx }) => {
+    return getMyInvitees(ctx.user.id);
+  }),
+
+  setInviteeRevenueShare: protectedProcedure
+    .input(z.object({ inviteeId: z.number(), ratio: z.number().min(0).max(100) }))
+    .mutation(async ({ input, ctx }) => {
+      // Verify the invitee is actually invited by this user
+      const invitee = await getUserById(input.inviteeId);
+      if (!invitee) throw new TRPCError({ code: "NOT_FOUND", message: "用户不存在" });
+      if (invitee.referrerId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "您只能给自己邀请的人设置分成比例" });
+      // User's own ratio is the upper limit
+      const currentUser = await getUserById(ctx.user.id);
+      const myRatio = parseFloat(currentUser?.revenueShareRatio || "0");
+      if (input.ratio > myRatio) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `分成比例不能超过您自己的比例 (${myRatio}%)` });
+      }
+      await updateUser(input.inviteeId, { revenueShareRatio: input.ratio.toFixed(2) });
+      return { success: true };
     }),
 
   // Admin
@@ -97,16 +119,6 @@ export const userRouter = router({
       const user = await getUserById(input.userId);
       if (!user) throw new TRPCError({ code: "NOT_FOUND" });
 
-      // Check parent constraint: ratio must be >= parent's ratio for this user
-      if (user.referrerId) {
-        const parent = await getUserById(user.referrerId);
-        if (parent) {
-          const parentRatio = parseFloat(parent.revenueShareRatio || "0");
-          if (input.ratio < parentRatio) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: `该用户的收益分成比例不能低于其上级的比例 ${parentRatio}%` });
-          }
-        }
-      }
       await updateUser(input.userId, { revenueShareRatio: input.ratio.toFixed(2) });
       return { success: true };
     }),

@@ -340,6 +340,47 @@ export async function listCopyOrders(userId?: number, page = 1, limit = 20) {
   return { items, total: Number(countQuery[0].count) };
 }
 
+export async function listAllCopyOrdersWithUser(page = 1, limit = 30) {
+  const db = await getDb();
+  if (!db) return { items: [], total: 0 };
+  const offset = (page - 1) * limit;
+  const items = await db
+    .select({
+      id: copyOrders.id,
+      userId: copyOrders.userId,
+      userName: users.name,
+      signalSourceId: copyOrders.signalSourceId,
+      exchange: copyOrders.exchange,
+      symbol: copyOrders.symbol,
+      action: copyOrders.action,
+      multiplier: copyOrders.multiplier,
+      signalQuantity: copyOrders.signalQuantity,
+      actualQuantity: copyOrders.actualQuantity,
+      openPrice: copyOrders.openPrice,
+      closePrice: copyOrders.closePrice,
+      openTime: copyOrders.openTime,
+      closeTime: copyOrders.closeTime,
+      exchangeOrderId: copyOrders.exchangeOrderId,
+      realizedPnl: copyOrders.realizedPnl,
+      fee: copyOrders.fee,
+      netPnl: copyOrders.netPnl,
+      status: copyOrders.status,
+      errorMessage: copyOrders.errorMessage,
+      isAbnormal: copyOrders.isAbnormal,
+      abnormalNote: copyOrders.abnormalNote,
+      createdAt: copyOrders.createdAt,
+      signalSourceName: signalSources.name,
+    })
+    .from(copyOrders)
+    .leftJoin(users, eq(copyOrders.userId, users.id))
+    .leftJoin(signalSources, eq(copyOrders.signalSourceId, signalSources.id))
+    .orderBy(desc(copyOrders.createdAt))
+    .limit(limit)
+    .offset(offset);
+  const countQuery = await db.select({ count: sql<number>`count(*)` }).from(copyOrders);
+  return { items, total: Number(countQuery[0].count) };
+}
+
 export async function getUserOrderStats(userId: number) {
   const db = await getDb();
   if (!db) return { totalProfit: 0, totalLoss: 0, netPnl: 0, totalOrders: 0, openOrders: 0 };
@@ -574,4 +615,17 @@ export async function getTeamStats(userId: number) {
     teamProfit,
     teamRevenueShare: parseFloat(shareResult.total || "0"),
   };
+}
+
+export async function getMyInvitees(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    id: users.id,
+    name: users.name,
+    email: users.email,
+    revenueShareRatio: users.revenueShareRatio,
+    isActive: users.isActive,
+    createdAt: users.createdAt,
+  }).from(users).where(eq(users.referrerId, userId)).orderBy(sql`${users.createdAt} DESC`);
 }

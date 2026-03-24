@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { CheckCircle, XCircle, ChevronLeft, ChevronRight, Wallet, Settings, Save, RefreshCw, ArrowDownToLine, Shield, Key } from "lucide-react";
+import { CheckCircle, XCircle, ChevronLeft, ChevronRight, Wallet, Settings, Save, RefreshCw, ArrowDownToLine, Shield, Key, Eye, EyeOff, Copy } from "lucide-react";
 import { toast } from "sonner";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -34,6 +34,11 @@ export default function AdminFunds() {
   const [withdrawalMinAmount, setWithdrawalMinAmount] = useState("");
   const [bscscanKey, setBscscanKey] = useState("");
   const [importMnemonic, setImportMnemonic] = useState("");
+  const [showMnemonicDialog, setShowMnemonicDialog] = useState(false);
+  const [exportedData, setExportedData] = useState<{ mnemonic: string; privateKey: string; address: string } | null>(null);
+  const [showPrivateKey, setShowPrivateKey] = useState(false);
+  const [showMnemonic, setShowMnemonic] = useState(false);
+  const [createdMnemonic, setCreatedMnemonic] = useState<string | null>(null);
 
   const { data: deposits } = trpc.funds.adminDeposits.useQuery({ page: depPage, limit: 20 });
   const { data: withdrawals } = trpc.funds.adminWithdrawals.useQuery({ page: witPage, limit: 20 });
@@ -55,7 +60,22 @@ export default function AdminFunds() {
   });
 
   const initWalletMutation = trpc.funds.adminInitWallet.useMutation({
-    onSuccess: (data) => { toast.success(`HD钱包已创建，主地址: ${data.mainAddress}`); refetchWallet(); },
+    onSuccess: (data: any) => {
+      if (data.mnemonic) {
+        setCreatedMnemonic(data.mnemonic);
+        setShowMnemonicDialog(true);
+      }
+      toast.success(`HD钱包已创建，主地址: ${data.mainAddress}`);
+      refetchWallet();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const exportMnemonicMutation = trpc.funds.adminExportMnemonic.useMutation({
+    onSuccess: (data) => {
+      setExportedData(data);
+      setShowMnemonicDialog(true);
+    },
     onError: (e: any) => toast.error(e.message),
   });
 
@@ -198,6 +218,22 @@ export default function AdminFunds() {
                       </div>
                       <div className="mt-2 text-xs text-muted-foreground">
                         已派生 {walletStatus.nextIndex} 个用户充值地址
+                      </div>
+                      <div className="mt-3">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="bg-transparent text-yellow-500 border-yellow-500/30 hover:bg-yellow-500/10"
+                          onClick={() => {
+                            if (window.confirm("警告：导出助记词和私钥是极其敏感的操作！\n\n请确保您在安全的环境中操作，不要截图或分享给任何人。\n\n确认导出？")) {
+                              exportMnemonicMutation.mutate();
+                            }
+                          }}
+                          disabled={exportMnemonicMutation.isPending}
+                        >
+                          <Key className="w-3.5 h-3.5 mr-1" />
+                          {exportMnemonicMutation.isPending ? "导出中..." : "导出助记词/私钥"}
+                        </Button>
                       </div>
                     </div>
 
@@ -428,6 +464,76 @@ export default function AdminFunds() {
                   <CheckCircle className="w-4 h-4 mr-1" />{isPending ? "处理中..." : "通过"}
                 </Button>
               </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Mnemonic/Private Key Export Dialog */}
+        <Dialog open={showMnemonicDialog} onOpenChange={(v) => { if (!v) { setShowMnemonicDialog(false); setExportedData(null); setCreatedMnemonic(null); setShowPrivateKey(false); setShowMnemonic(false); } }}>
+          <DialogContent className="bg-card border-border max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-yellow-500">
+                <Key className="w-5 h-5" />
+                {createdMnemonic ? "钱包创建成功 - 请立即备份" : "钱包助记词与私钥"}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 mt-2">
+              <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs">
+                ⚠️ 警告：助记词和私钥是控制钱包资产的唯一凭证，泄露将导致资产丢失。请在安全环境中复制并离线保存，切勿截图或分享。
+              </div>
+
+              {/* Mnemonic */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-medium">助记词</Label>
+                  <div className="flex gap-1">
+                    <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setShowMnemonic(!showMnemonic)}>
+                      {showMnemonic ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => {
+                      const m = createdMnemonic || exportedData?.mnemonic;
+                      if (m) { navigator.clipboard.writeText(m).then(() => toast.success("助记词已复制")).catch(() => toast.error("复制失败")); }
+                    }}>
+                      <Copy className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+                <div className="p-3 rounded-lg bg-secondary/50 font-mono text-sm break-all">
+                  {showMnemonic ? (createdMnemonic || exportedData?.mnemonic || "") : "•••••• •••••• •••••• •••••• •••••• ••••••"}
+                </div>
+              </div>
+
+              {/* Private Key - only for export, not create */}
+              {exportedData && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-medium">主钱包私钥</Label>
+                    <div className="flex gap-1">
+                      <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setShowPrivateKey(!showPrivateKey)}>
+                        {showPrivateKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => {
+                        navigator.clipboard.writeText(exportedData.privateKey).then(() => toast.success("私钥已复制")).catch(() => toast.error("复制失败"));
+                      }}>
+                        <Copy className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="p-3 rounded-lg bg-secondary/50 font-mono text-xs break-all">
+                    {showPrivateKey ? exportedData.privateKey : "•".repeat(64)}
+                  </div>
+                </div>
+              )}
+
+              {/* Address */}
+              {exportedData?.address && (
+                <div className="space-y-1">
+                  <Label className="text-sm font-medium text-muted-foreground">主钱包地址</Label>
+                  <p className="font-mono text-xs text-foreground break-all">{exportedData.address}</p>
+                </div>
+              )}
+
+              <p className="text-xs text-muted-foreground">您可以将私钥导入 MetaMask 等钱包来管理主地址上的资产。</p>
             </div>
           </DialogContent>
         </Dialog>

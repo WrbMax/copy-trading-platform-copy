@@ -65,7 +65,7 @@ export default function AdminRevenueShare() {
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-muted-foreground">{u.referrerId ? `#${u.referrerId}` : "-"}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{u.invitedById || u.referrerId ? `#${u.invitedById || u.referrerId}` : "-"}</td>
                       <td className="px-4 py-3">
                         {editUserId !== u.id && (
                           <Button size="sm" variant="ghost" className="text-xs" onClick={() => { setEditUserId(u.id); setEditRatio(u.revenueShareRatio || "0"); }}>
@@ -89,7 +89,7 @@ export default function AdminRevenueShare() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border">
-                    {["交易用户", "受益用户", "层级", "分成比例", "金额", "时间"].map((h) => (
+                    {["交易用户", "受益用户", "分成比例", "金额", "时间"].map((h) => (
                       <th key={h} className="text-left px-4 py-3 text-muted-foreground font-medium">{h}</th>
                     ))}
                   </tr>
@@ -99,7 +99,6 @@ export default function AdminRevenueShare() {
                     <tr key={r.id} className="border-b border-border/50 hover:bg-secondary/30">
                       <td className="px-4 py-3 text-muted-foreground">#{r.traderId}</td>
                       <td className="px-4 py-3 text-foreground">#{r.recipientId}</td>
-                      <td className="px-4 py-3 text-muted-foreground">第{r.level}级</td>
                       <td className="px-4 py-3 text-muted-foreground">{parseFloat(r.ratio).toFixed(2)}%</td>
                       <td className="px-4 py-3 font-semibold text-profit">+{parseFloat(r.amount).toFixed(4)} USDT</td>
                       <td className="px-4 py-3 text-xs text-muted-foreground">{new Date(r.createdAt).toLocaleString()}</td>
