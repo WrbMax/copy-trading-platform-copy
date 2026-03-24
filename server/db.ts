@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lt, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -352,13 +352,13 @@ export async function listCopyOrders(userId?: number, page = 1, limit = 20) {
   const db = await getDb();
   if (!db) return { items: [], total: 0 };
   const offset = (page - 1) * limit;
-  const where = userId ? eq(copyOrders.userId, userId) : undefined;
-  const items = where
-    ? await db.select().from(copyOrders).where(where).orderBy(desc(copyOrders.createdAt)).limit(limit).offset(offset)
-    : await db.select().from(copyOrders).orderBy(desc(copyOrders.createdAt)).limit(limit).offset(offset);
-  const countQuery = where
-    ? await db.select({ count: sql<number>`count(*)` }).from(copyOrders).where(where)
-    : await db.select({ count: sql<number>`count(*)` }).from(copyOrders);
+  // Filter out cancelled orders — they are cleaned-up duplicates not meant for user display
+  const notCancelled = ne(copyOrders.status, "cancelled");
+  const where = userId
+    ? and(eq(copyOrders.userId, userId), notCancelled)
+    : notCancelled;
+  const items = await db.select().from(copyOrders).where(where).orderBy(desc(copyOrders.createdAt)).limit(limit).offset(offset);
+  const countQuery = await db.select({ count: sql<number>`count(*)` }).from(copyOrders).where(where);
   return { items, total: Number(countQuery[0].count) };
 }
 
@@ -396,10 +396,11 @@ export async function listAllCopyOrdersWithUser(page = 1, limit = 30) {
     .from(copyOrders)
     .leftJoin(users, eq(copyOrders.userId, users.id))
     .leftJoin(signalSources, eq(copyOrders.signalSourceId, signalSources.id))
+    .where(ne(copyOrders.status, "cancelled"))
     .orderBy(desc(copyOrders.createdAt))
     .limit(limit)
     .offset(offset);
-  const countQuery = await db.select({ count: sql<number>`count(*)` }).from(copyOrders);
+  const countQuery = await db.select({ count: sql<number>`count(*)` }).from(copyOrders).where(ne(copyOrders.status, "cancelled"));
   return { items, total: Number(countQuery[0].count) };
 }
 
@@ -411,7 +412,7 @@ export async function getUserOrderStats(userId: number) {
     totalLoss: sql<string>`COALESCE(SUM(CASE WHEN netPnl < 0 THEN ABS(netPnl) ELSE 0 END), 0)`,
     totalOrders: sql<number>`COUNT(*)`,
     openOrders: sql<number>`SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END)`,
-  }).from(copyOrders).where(eq(copyOrders.userId, userId));
+  }).from(copyOrders).where(and(eq(copyOrders.userId, userId), ne(copyOrders.status, "cancelled")));
   const row = result[0];
   const totalProfit = parseFloat(row.totalProfit || "0");
   const totalLoss = parseFloat(row.totalLoss || "0");

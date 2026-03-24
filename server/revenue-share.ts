@@ -12,13 +12,21 @@ import {
  * Process revenue share for a closed profitable order.
  * Uses differential (差额) multi-level sharing.
  *
+ * The trader's revenueShareRatio determines how much of their profit is deducted.
+ * Each ancestor in the referral chain earns the DIFFERENCE between the ratio
+ * they set for their referral (i.e., the child's ratio) and their own ratio.
+ *
  * Example:
- *   A → B → C (trader)
- *   A's ratio for B = 10%, B's ratio for C = 30%
+ *   A (admin, ratio=10%) → B (referrer, ratio=10%) → C (trader, ratio=30%)
  *   C's profit = 100U
- *   → C deducted: 100 × 30% = 30U
- *   → B receives: 100 × (30% - 10%) = 20U
- *   → A receives: 100 × 10% = 10U
+ *   → C deducted: 100 × 30% = 30U (C's own ratio)
+ *   → B receives: 100 × (30% - 10%) = 20U (C's ratio minus B's ratio)
+ *   → A receives: 100 × (10% - 0%) = 10U (B's ratio minus A's ratio or 0 if top)
+ *
+ * The chain from getUserReferralChain(C) returns [B, A] where each has their OWN ratio.
+ * We compute: for each ancestor, their earning = (childRatio - ownRatio) * profit
+ * where childRatio starts as the trader's ratio, then becomes the current ancestor's ratio
+ * for the next level up.
  */
 export async function processRevenueShare(params: {
   copyOrderId: number;
@@ -38,13 +46,12 @@ export async function processRevenueShare(params: {
   if (totalDeducted <= 0) return;
 
   // Get the referral chain (parent, grandparent, ...)
-  // If no chain, fallback to admin as the recipient
+  // chain[0] = direct parent (B), chain[1] = grandparent (A), etc.
   let chain = await getUserReferralChain(traderId);
   if (chain.length === 0) {
     const admin = await getAdminUser();
-    // Don't share with self
     if (!admin || admin.id === traderId) {
-      // Still deduct from trader and record as platform income
+      // No referrer and no admin (or admin is trader) — deduct as platform income
       const updatedTrader = await getUserById(traderId);
       if (updatedTrader) {
         const newBalance = Math.max(0, parseFloat(updatedTrader.balance || "0") - totalDeducted);
@@ -74,46 +81,54 @@ export async function processRevenueShare(params: {
     amount: string;
   }> = [];
 
-  let prevRatio = 0;
+  // Differential calculation:
+  // childRatio starts as the trader's ratio (what the trader is charged).
+  // For each ancestor, they earn (childRatio - ownRatio).
+  // Then childRatio becomes ownRatio for the next level up.
+  let childRatio = traderRatio;
+
   for (let i = 0; i < chain.length; i++) {
     const ancestor = chain[i];
-    const ancestorRatio = parseFloat(ancestor.revenueShareRatio || "0");
-    if (ancestorRatio <= 0) continue;
+    const ownRatio = parseFloat(ancestor.revenueShareRatio || "0");
 
-    // Differential amount for this level
-    const diff = ancestorRatio - prevRatio;
-    if (diff <= 0) continue;
+    // This ancestor earns the difference between what their child is charged
+    // and what they themselves would be charged by their parent
+    const diff = childRatio - ownRatio;
+    if (diff > 0) {
+      const amount = netPnl * (diff / 100);
+      if (amount > 0) {
+        records.push({
+          copyOrderId,
+          traderId,
+          recipientId: ancestor.id,
+          level: i + 1,
+          traderPnl: netPnl.toFixed(8),
+          ratio: diff.toFixed(2),
+          amount: amount.toFixed(8),
+        });
 
-    const amount = netPnl * (diff / 100);
-    if (amount <= 0) continue;
-
-    records.push({
-      copyOrderId,
-      traderId,
-      recipientId: ancestor.id,
-      level: i + 1,
-      traderPnl: netPnl.toFixed(8),
-      ratio: diff.toFixed(2),
-      amount: amount.toFixed(8),
-    });
-
-    // Credit the ancestor's balance
-    const recipient = await getUserById(ancestor.id);
-    if (recipient) {
-      const newBalance = parseFloat(recipient.balance || "0") + amount;
-      await updateUser(ancestor.id, { balance: newBalance.toFixed(8) });
-      await addFundTransaction({
-        userId: ancestor.id,
-        type: "revenue_share_in",
-        amount: amount.toFixed(8),
-        balanceAfter: newBalance.toFixed(8),
-        relatedId: copyOrderId,
-        note: `来自用户 #${traderId} 的收益分成`,
-      });
+        // Credit the ancestor's balance
+        const recipient = await getUserById(ancestor.id);
+        if (recipient) {
+          const newBalance = parseFloat(recipient.balance || "0") + amount;
+          await updateUser(ancestor.id, { balance: newBalance.toFixed(8) });
+          await addFundTransaction({
+            userId: ancestor.id,
+            type: "revenue_share_in",
+            amount: amount.toFixed(8),
+            balanceAfter: newBalance.toFixed(8),
+            relatedId: copyOrderId,
+            note: `来自用户 #${traderId} 的收益分成`,
+          });
+        }
+      }
     }
 
-    prevRatio = ancestorRatio;
-    if (prevRatio >= traderRatio) break;
+    // Move up: the next ancestor's "child ratio" is this ancestor's own ratio
+    childRatio = ownRatio;
+
+    // If own ratio is 0, no further ancestors can earn anything
+    if (childRatio <= 0) break;
   }
 
   if (records.length > 0) {
