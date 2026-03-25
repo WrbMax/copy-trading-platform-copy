@@ -7,8 +7,56 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
-import { Search, ChevronLeft, ChevronRight, Settings, Plus, Minus } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, Settings, Plus, Minus, ChevronDown, ChevronUp, Users } from "lucide-react";
 import { toast } from "sonner";
+
+// Sub-component: renders invitees for a given userId
+function InviteesRow({ userId, colSpan }: { userId: number; colSpan: number }) {
+  const { data: invitees, isLoading } = trpc.user.adminGetInvitees.useQuery({ userId });
+  return (
+    <tr>
+      <td colSpan={colSpan} className="px-0 py-0">
+        <div className="bg-secondary/20 border-b border-border/50 px-8 py-3">
+          <div className="flex items-center gap-2 mb-2">
+            <Users className="w-3.5 h-3.5 text-muted-foreground" />
+            <span className="text-xs font-medium text-muted-foreground">邀请的成员</span>
+          </div>
+          {isLoading ? (
+            <p className="text-xs text-muted-foreground">加载中...</p>
+          ) : !invitees || invitees.length === 0 ? (
+            <p className="text-xs text-muted-foreground">该用户暂无邀请成员</p>
+          ) : (
+            <table className="w-full text-xs">
+              <thead>
+                <tr>
+                  {["ID", "用户名", "邮箱", "分成比例", "状态", "注册时间"].map((h) => (
+                    <th key={h} className="text-left py-1 pr-6 text-muted-foreground font-medium">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {invitees.map((inv: any) => (
+                  <tr key={inv.id} className="border-t border-border/30">
+                    <td className="py-1.5 pr-6 text-muted-foreground">#{inv.id}</td>
+                    <td className="py-1.5 pr-6 font-medium text-foreground">{inv.name || "-"}</td>
+                    <td className="py-1.5 pr-6 text-muted-foreground">{inv.email || "-"}</td>
+                    <td className="py-1.5 pr-6 text-foreground">{parseFloat(inv.revenueShareRatio || "0").toFixed(1)}%</td>
+                    <td className="py-1.5 pr-6">
+                      <Badge variant={inv.isActive ? "default" : "secondary"} className="text-xs">
+                        {inv.isActive ? "正常" : "禁用"}
+                      </Badge>
+                    </td>
+                    <td className="py-1.5 pr-6 text-muted-foreground">{new Date(inv.createdAt).toLocaleDateString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
 
 export default function AdminUsers() {
   const utils = trpc.useUtils();
@@ -23,6 +71,10 @@ export default function AdminUsers() {
   const [balanceAmount, setBalanceAmount] = useState("");
   const [balanceNote, setBalanceNote] = useState("");
   const [balanceIsAdd, setBalanceIsAdd] = useState(true);
+
+  // Expanded invitees row
+  const [expandedUserId, setExpandedUserId] = useState<number | null>(null);
+  const toggleExpand = (userId: number) => setExpandedUserId(prev => prev === userId ? null : userId);
 
   const { data } = trpc.user.adminList.useQuery({ page, limit: 20 });
   const allItems = data?.items ?? [];
@@ -111,48 +163,64 @@ export default function AdminUsers() {
                 </thead>
                 <tbody>
                   {items.map((u: any) => (
-                    <tr key={u.id} className="border-b border-border/50 hover:bg-secondary/30">
-                      <td className="px-4 py-3 text-muted-foreground">#{u.id}</td>
-                      <td className="px-4 py-3 font-medium text-foreground">{u.name || "-"}</td>
-                      <td className="px-4 py-3 text-muted-foreground">{u.email || "-"}</td>
-                      <td className="px-4 py-3">
-                        <Badge variant={u.role === "admin" ? "default" : "secondary"} className="text-xs">{u.role}</Badge>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-foreground">{parseFloat(u.balance || "0").toFixed(2)}</span>
-                          <div className="flex gap-1">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-6 w-6 p-0 text-emerald-500 hover:bg-emerald-500/10"
-                              onClick={() => openBalanceAdjust(u, true)}
-                              title="增加余额"
-                            >
-                              <Plus className="w-3 h-3" />
+                    <>
+                      <tr key={u.id} className="border-b border-border/50 hover:bg-secondary/30">
+                        <td className="px-4 py-3 text-muted-foreground">#{u.id}</td>
+                        <td className="px-4 py-3 font-medium text-foreground">{u.name || "-"}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{u.email || "-"}</td>
+                        <td className="px-4 py-3">
+                          <Badge variant={u.role === "admin" ? "default" : "secondary"} className="text-xs">{u.role}</Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-foreground">{parseFloat(u.balance || "0").toFixed(2)}</span>
+                            <div className="flex gap-1">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 w-6 p-0 text-emerald-500 hover:bg-emerald-500/10"
+                                onClick={() => openBalanceAdjust(u, true)}
+                                title="增加余额"
+                              >
+                                <Plus className="w-3 h-3" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 w-6 p-0 text-red-500 hover:bg-red-500/10"
+                                onClick={() => openBalanceAdjust(u, false)}
+                                title="扣减余额"
+                              >
+                                <Minus className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-foreground">{u.points ?? 0}</td>
+                        <td className="px-4 py-3 text-foreground">{parseFloat(u.revenueShareRatio || "0").toFixed(1)}%</td>
+                        <td className="px-4 py-3 text-muted-foreground">{u.invitedById ? `#${u.invitedById}` : "-"}</td>
+                        <td className="px-4 py-3 text-xs text-muted-foreground">{new Date(u.createdAt).toLocaleDateString()}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1">
+                            <Button size="sm" variant="ghost" onClick={() => openEdit(u)} title="设置分成比例">
+                              <Settings className="w-4 h-4" />
                             </Button>
                             <Button
                               size="sm"
                               variant="ghost"
-                              className="h-6 w-6 p-0 text-red-500 hover:bg-red-500/10"
-                              onClick={() => openBalanceAdjust(u, false)}
-                              title="扣减余额"
+                              onClick={() => toggleExpand(u.id)}
+                              title="查看邀请的成员"
+                              className={expandedUserId === u.id ? "text-primary" : ""}
                             >
-                              <Minus className="w-3 h-3" />
+                              {expandedUserId === u.id ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                             </Button>
                           </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-foreground">{u.points ?? 0}</td>
-                      <td className="px-4 py-3 text-foreground">{parseFloat(u.revenueShareRatio || "0").toFixed(1)}%</td>
-                      <td className="px-4 py-3 text-muted-foreground">{u.invitedById ? `#${u.invitedById}` : "-"}</td>
-                      <td className="px-4 py-3 text-xs text-muted-foreground">{new Date(u.createdAt).toLocaleDateString()}</td>
-                      <td className="px-4 py-3">
-                        <Button size="sm" variant="ghost" onClick={() => openEdit(u)} title="设置分成比例">
-                          <Settings className="w-4 h-4" />
-                        </Button>
-                      </td>
-                    </tr>
+                        </td>
+                      </tr>
+                      {expandedUserId === u.id && (
+                        <InviteesRow userId={u.id} colSpan={10} />
+                      )}
+                    </>
                   ))}
                 </tbody>
               </table>

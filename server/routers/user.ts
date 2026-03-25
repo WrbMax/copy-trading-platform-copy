@@ -103,6 +103,12 @@ export const userRouter = router({
       };
     }),
 
+  adminGetInvitees: adminProcedure
+    .input(z.object({ userId: z.number() }))
+    .query(async ({ input }) => {
+      return getMyInvitees(input.userId);
+    }),
+
   adminToggleUser: adminProcedure
     .input(z.object({ userId: z.number(), isActive: z.boolean() }))
     .mutation(async ({ input }) => {
