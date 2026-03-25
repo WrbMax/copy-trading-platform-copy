@@ -1,0 +1,170 @@
+{
+  "query": "DESCRIBE users;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2yRRhmQmjmz9LMP.root --database 3xjoeN6gTpdmQoJAnkq7pe --execute DESCRIBE users;",
+  "rows": [
+    {
+      "Field": "id",
+      "Type": "int",
+      "Null": "NO",
+      "Key": "PRI",
+      "Default": "NULL",
+      "Extra": "auto_increment"
+    },
+    {
+      "Field": "openId",
+      "Type": "varchar(64)",
+      "Null": "NO",
+      "Key": "UNI",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "name",
+      "Type": "text",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "email",
+      "Type": "varchar(320)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "loginMethod",
+      "Type": "varchar(64)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "role",
+      "Type": "enum('user','admin')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "user",
+      "Extra": ""
+    },
+    {
+      "Field": "createdAt",
+      "Type": "timestamp",
+      "Null": "NO",
+      "Key": "",
+      "Default": "CURRENT_TIMESTAMP",
+      "Extra": ""
+    },
+    {
+      "Field": "updatedAt",
+      "Type": "timestamp",
+      "Null": "NO",
+      "Key": "",
+      "Default": "CURRENT_TIMESTAMP",
+      "Extra": "DEFAULT_GENERATED on update CURRENT_TIMESTAMP"
+    },
+    {
+      "Field": "lastSignedIn",
+      "Type": "timestamp",
+      "Null": "NO",
+      "Key": "",
+      "Default": "CURRENT_TIMESTAMP",
+      "Extra": ""
+    },
+    {
+      "Field": "passwordHash",
+      "Type": "varchar(256)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "inviteCode",
+      "Type": "varchar(16)",
+      "Null": "YES",
+      "Key": "UNI",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "referrerId",
+      "Type": "int",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "balance",
+      "Type": "decimal(20,8)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "0",
+      "Extra": ""
+    },
+    {
+      "Field": "points",
+      "Type": "bigint",
+      "Null": "NO",
+      "Key": "",
+      "Default": "0",
+      "Extra": ""
+    },
+    {
+      "Field": "totalProfit",
+      "Type": "decimal(20,8)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "0",
+      "Extra": ""
+    },
+    {
+      "Field": "totalLoss",
+      "Type": "decimal(20,8)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "0",
+      "Extra": ""
+    },
+    {
+      "Field": "lastPointsRedeemMonth",
+      "Type": "varchar(7)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "revenueShareRatio",
+      "Type": "decimal(5,2)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "0",
+      "Extra": ""
+    },
+    {
+      "Field": "isActive",
+      "Type": "tinyint(1)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "1",
+      "Extra": ""
+    },
+    {
+      "Field": "depositAddress",
+      "Type": "varchar(128)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    }
+  ],
+  "messages": [],
+  "stdout": "Field\tType\tNull\tKey\tDefault\tExtra\nid\tint\tNO\tPRI\tNULL\tauto_increment\nopenId\tvarchar(64)\tNO\tUNI\tNULL\t\nname\ttext\tYES\t\tNULL\t\nemail\tvarchar(320)\tYES\t\tNULL\t\nloginMethod\tvarchar(64)\tYES\t\tNULL\t\nrole\tenum('user','admin')\tNO\t\tuser\t\ncreatedAt\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\t\nupdatedAt\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\tDEFAULT_GENERATED on update CURRENT_TIMESTAMP\nlastSignedIn\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\t\npasswordHash\tvarchar(256)\tYES\t\tNULL\t\ninviteCode\tvarchar(16)\tYES\tUNI\tNULL\t\nreferrerId\tint\tYES\t\tNULL\t\nbalance\tdecimal(20,8)\tNO\t\t0\t\npoints\tbigint\tNO\t\t0\t\ntotalProfit\tdecimal(20,8)\tNO\t\t0\t\ntotalLoss\tdecimal(20,8)\tNO\t\t0\t\nlastPointsRedeemMonth\tvarchar(7)\tYES\t\tNULL\t\nrevenueShareRatio\tdecimal(5,2)\tNO\t\t0\t\nisActive\ttinyint(1)\tNO\t\t1\t\ndepositAddress\tvarchar(128)\tYES\t\tNULL\t\n",
+  "stderr": "",
+  "execution_time_ms": 2852
+}

@@ -407,12 +407,21 @@ export async function listAllCopyOrdersWithUser(page = 1, limit = 30) {
 export async function getUserOrderStats(userId: number) {
   const db = await getDb();
   if (!db) return { totalProfit: 0, totalLoss: 0, netPnl: 0, totalOrders: 0, openOrders: 0 };
+  // Only count open_long/open_short orders to avoid double-counting
+  // (close orders share the same PnL as their paired open orders)
   const result = await db.select({
     totalProfit: sql<string>`COALESCE(SUM(CASE WHEN netPnl > 0 THEN netPnl ELSE 0 END), 0)`,
     totalLoss: sql<string>`COALESCE(SUM(CASE WHEN netPnl < 0 THEN ABS(netPnl) ELSE 0 END), 0)`,
     totalOrders: sql<number>`COUNT(*)`,
     openOrders: sql<number>`SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END)`,
-  }).from(copyOrders).where(and(eq(copyOrders.userId, userId), ne(copyOrders.status, "cancelled")));
+  }).from(copyOrders).where(
+    and(
+      eq(copyOrders.userId, userId),
+      ne(copyOrders.status, "cancelled"),
+      // Only count open orders to avoid double-counting PnL with close orders
+      sql`action IN ('open_long', 'open_short')`
+    )
+  );
   const row = result[0];
   const totalProfit = parseFloat(row.totalProfit || "0");
   const totalLoss = parseFloat(row.totalLoss || "0");
@@ -591,7 +600,7 @@ export async function getAdminDashboardStats() {
   const [orderStats] = await db.select({
     totalProfit: sql<string>`COALESCE(SUM(CASE WHEN netPnl > 0 THEN netPnl ELSE 0 END), 0)`,
     abnormal: sql<number>`SUM(CASE WHEN isAbnormal = 1 THEN 1 ELSE 0 END)`,
-  }).from(copyOrders);
+  }).from(copyOrders).where(sql`action IN ('open_long', 'open_short')`);
   const [shareStats] = await db.select({
     total: sql<string>`COALESCE(SUM(amount), 0)`,
   }).from(revenueShareRecords);
@@ -626,7 +635,7 @@ export async function getTeamStats(userId: number) {
   let teamProfit = 0;
   if (allTeamIds.length > 0) {
     const [profitResult] = await db.select({ total: sql<string>`COALESCE(SUM(CASE WHEN netPnl > 0 THEN netPnl ELSE 0 END), 0)` })
-      .from(copyOrders).where(sql`userId IN (${allTeamIds.join(",")})`);
+      .from(copyOrders).where(sql`userId IN (${allTeamIds.join(",")}) AND action IN ('open_long', 'open_short')`);
     teamProfit = parseFloat(profitResult.total || "0");
   }
   // Revenue share received by this user
