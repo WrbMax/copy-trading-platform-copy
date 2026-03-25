@@ -34,7 +34,8 @@ export default function Register() {
     if (!email) { setError("请输入邮箱"); return; }
     if (password.length < 8) { setError("密码至少8位"); return; }
     if (password !== confirmPassword) { setError("两次密码不一致"); return; }
-    registerMutation.mutate({ email, password, name, inviteCode: inviteCode || undefined });
+    if (!inviteCode.trim()) { setError("请填写邀请码"); return; }
+    registerMutation.mutate({ email, password, name, inviteCode });
   };
 
   return (
@@ -93,8 +94,9 @@ export default function Register() {
                 <Input id="confirmPassword" type="password" placeholder="再次输入密码" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="bg-input border-border" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="inviteCode">邀请码（可选）</Label>
-                <Input id="inviteCode" placeholder="填写邀请码" value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} className="bg-input border-border" />
+                <Label htmlFor="inviteCode">邀请码 <span className="text-destructive">*</span></Label>
+                <Input id="inviteCode" placeholder="请输入邀请码（必填）" value={inviteCode} onChange={(e) => setInviteCode(e.target.value)} className="bg-input border-border" />
+                <p className="text-xs text-muted-foreground">没有邀请码无法注册，请联系推荐人获取</p>
               </div>
               <Button type="submit" className="w-full" disabled={registerMutation.isPending}>
                 {registerMutation.isPending ? "注册中..." : "完成注册"}

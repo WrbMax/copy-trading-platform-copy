@@ -92,6 +92,7 @@ export async function createEmailUser(data: {
   name: string;
   inviteCode: string;
   referrerId?: number;
+  revenueShareRatio?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -103,6 +104,7 @@ export async function createEmailUser(data: {
     passwordHash: data.passwordHash,
     inviteCode: data.inviteCode,
     referrerId: data.referrerId,
+    revenueShareRatio: data.revenueShareRatio ?? "50.00",
     loginMethod: "email",
     role: "user",
     lastSignedIn: new Date(),

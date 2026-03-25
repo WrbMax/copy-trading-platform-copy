@@ -52,20 +52,17 @@ export const authRouter = router({
       email: z.string().email(),
       password: z.string().min(8),
       name: z.string().min(1).max(50),
-      inviteCode: z.string().optional(),
+      inviteCode: z.string().min(1, "邀请码为必填项"),
     }))
     .mutation(async ({ input, ctx }) => {
       // Check email not taken
       const existing = await getUserByEmail(input.email);
       if (existing) throw new TRPCError({ code: "CONFLICT", message: "该邮箱已注册" });
 
-      // Resolve referrer
-      let referrerId: number | undefined;
-      if (input.inviteCode) {
-        const referrer = await getUserByInviteCode(input.inviteCode);
-        if (!referrer) throw new TRPCError({ code: "BAD_REQUEST", message: "邀请码无效" });
-        referrerId = referrer.id;
-      }
+      // Resolve referrer (required)
+      const referrer = await getUserByInviteCode(input.inviteCode);
+      if (!referrer) throw new TRPCError({ code: "BAD_REQUEST", message: "邀请码无效" });
+      const referrerId = referrer.id;
 
       const passwordHash = hashPassword(input.password);
       const myInviteCode = generateInviteCode();
@@ -75,6 +72,7 @@ export const authRouter = router({
         name: input.name,
         inviteCode: myInviteCode,
         referrerId,
+        revenueShareRatio: "50.00",
       });
       if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "注册失败" });
 
