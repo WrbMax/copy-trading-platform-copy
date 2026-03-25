@@ -620,19 +620,20 @@ export async function getAdminDashboardStats() {
 export async function getTeamStats(userId: number) {
   const db = await getDb();
   if (!db) return { directCount: 0, totalCount: 0, teamProfit: 0, teamRevenueShare: 0 };
-  // Direct referrals
+  // Direct referrals count
   const [direct] = await db.select({ count: sql<number>`count(*)` }).from(users).where(eq(users.referrerId, userId));
-  // All team members (recursive - simplified to 2 levels for now)
-  const directMembers = await db.select({ id: users.id }).from(users).where(eq(users.referrerId, userId));
-  const directIds = directMembers.map(m => m.id);
-  let totalCount = directIds.length;
-  if (directIds.length > 0) {
-    const secondLevel = await db.select({ count: sql<number>`count(*)` }).from(users)
-      .where(sql`referrerId IN (${directIds.join(",")})`);
-    totalCount += Number(secondLevel[0].count);
+  // Recursively collect ALL team member IDs across all levels (BFS)
+  const allTeamIds: number[] = [];
+  let currentLevelIds = (await db.select({ id: users.id }).from(users).where(eq(users.referrerId, userId))).map(m => m.id);
+  const directIds = [...currentLevelIds];
+  while (currentLevelIds.length > 0) {
+    allTeamIds.push(...currentLevelIds);
+    const nextLevel = await db.select({ id: users.id }).from(users)
+      .where(sql`referrerId IN (${currentLevelIds.join(",")})`);
+    currentLevelIds = nextLevel.map(m => m.id);
   }
-  // Team profit (orders from direct + indirect)
-  const allTeamIds = [...directIds];
+  const totalCount = allTeamIds.length;
+  // Team profit (orders from ALL levels)
   let teamProfit = 0;
   if (allTeamIds.length > 0) {
     const [profitResult] = await db.select({ total: sql<string>`COALESCE(SUM(CASE WHEN netPnl > 0 THEN netPnl ELSE 0 END), 0)` })
