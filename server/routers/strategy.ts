@@ -29,6 +29,14 @@ import { encrypt, decrypt, maskApiKey } from "../crypto";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { adminProcedure } from "../_core/trpc";
 import { reloadSignalSource, getCopyEngineStatus } from "../copy-engine";
+import { getBinanceTradeStats, toBinanceSymbol, BinanceCredentials } from "../binance-client";
+
+// ─── Exchange-sourced order stats cache ──────────────────────────────────────
+// Cache per userId for 60 seconds to avoid excessive exchange API calls
+const exchangeStatsCache = new Map<number, {
+  data: { totalProfit: number; totalLoss: number; netPnl: number; totalOrders: number; openOrders: number };
+  expiry: number;
+}>();
 
 export const strategyRouter = router({
   // Public: list active strategies
@@ -94,7 +102,77 @@ export const strategyRouter = router({
     }),
 
   orderStats: protectedProcedure.query(async ({ ctx }) => {
-    return getUserOrderStats(ctx.user.id);
+    const userId = ctx.user.id;
+
+    // Check cache first
+    const cached = exchangeStatsCache.get(userId);
+    if (cached && Date.now() < cached.expiry) {
+      return cached.data;
+    }
+
+    // Try to get stats from exchange API (Binance) for accuracy
+    try {
+      const apis = await getExchangeApisByUserId(userId);
+      const binanceApi = apis.find((a) => a.exchange === "binance" && a.isActive);
+
+      if (binanceApi) {
+        const creds: BinanceCredentials = {
+          apiKey: decrypt(binanceApi.apiKeyEncrypted),
+          secretKey: decrypt(binanceApi.secretKeyEncrypted),
+        };
+
+        // Get all unique symbols this user has traded (from copy_orders)
+        const dbStats = await getUserOrderStats(userId);
+
+        // Collect all unique Binance symbols from user's orders
+        // For now, fetch ETHUSDT as the primary trading pair
+        // TODO: expand to multiple symbols when needed
+        const symbolsToQuery = new Set<string>();
+
+        // Get symbols from user's copy orders
+        const { items: recentOrders } = await listCopyOrders(userId, 1, 500);
+        for (const order of recentOrders) {
+          if (order.exchange === "binance" && order.symbol) {
+            symbolsToQuery.add(toBinanceSymbol(order.symbol));
+          }
+        }
+
+        // Fallback: if no orders found, try ETHUSDT as default
+        if (symbolsToQuery.size === 0) {
+          symbolsToQuery.add("ETHUSDT");
+        }
+
+        // Aggregate stats across all symbols
+        let totalProfit = 0;
+        let totalLoss = 0;
+        let netPnl = 0;
+
+        for (const symbol of symbolsToQuery) {
+          const stats = await getBinanceTradeStats(creds, symbol);
+          totalProfit += stats.totalProfit;
+          totalLoss += stats.totalLoss;
+          netPnl += stats.netPnl;
+        }
+
+        const result = {
+          totalProfit,
+          totalLoss,
+          netPnl,
+          totalOrders: dbStats.totalOrders,
+          openOrders: dbStats.openOrders,
+        };
+
+        // Cache for 60 seconds
+        exchangeStatsCache.set(userId, { data: result, expiry: Date.now() + 60_000 });
+        console.log(`[OrderStats] User ${userId}: exchange-sourced stats - profit=${totalProfit.toFixed(4)}, loss=${totalLoss.toFixed(4)}, net=${netPnl.toFixed(4)}`);
+        return result;
+      }
+    } catch (err) {
+      console.warn(`[OrderStats] Failed to fetch exchange stats for user ${userId}, falling back to DB:`, err);
+    }
+
+    // Fallback to database stats (for non-Binance users or API errors)
+    return getUserOrderStats(userId);
   }),
 
   revenueShareStats: protectedProcedure.query(async ({ ctx }) => {

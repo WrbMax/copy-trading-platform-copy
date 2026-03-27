@@ -295,3 +295,65 @@ export function calcBinanceQty(
   const rounded = Math.floor(ethAmount * factor) / factor;
   return rounded.toFixed(quantityPrecision);
 }
+
+/**
+ * Fetch all user trades for a given symbol from Binance and compute aggregate PnL stats.
+ * This gives the TRUE realized PnL as recorded by the exchange, independent of platform order tracking.
+ * Returns: totalProfit (sum of profitable close trades), totalLoss (sum of losing close trades),
+ *          netPnl (totalProfit - totalLoss - totalFee), totalFee.
+ */
+export async function getBinanceTradeStats(
+  creds: BinanceCredentials,
+  symbol: string
+): Promise<{ totalProfit: number; totalLoss: number; netPnl: number; totalFee: number }> {
+  // Fetch all trades (paginated by startTime)
+  let allTrades: Array<{ realizedPnl: string; commission: string; time: number }> = [];
+  let startTime = 0;
+
+  for (let i = 0; i < 20; i++) { // Safety limit: max 20 pages = 20,000 trades
+    const params: Record<string, string | number> = { symbol, limit: 1000 };
+    if (startTime > 0) params.startTime = startTime;
+
+    const trades = await binanceRequest<Array<{ realizedPnl: string; commission: string; time: number }>>(
+      creds, "GET", "/fapi/v1/userTrades", params
+    );
+    if (!Array.isArray(trades) || trades.length === 0) break;
+    allTrades = allTrades.concat(trades);
+
+    const lastTime = trades[trades.length - 1].time;
+    if (startTime === lastTime + 1) break;
+    startTime = lastTime + 1;
+
+    if (trades.length < 1000) break;
+  }
+
+  // Aggregate: realizedPnl from Binance is the raw PnL per trade fill (non-zero only for closing trades)
+  // commission is the fee per trade fill
+  let totalRealizedPnl = 0; // sum of all realizedPnl (includes both profit and loss closes)
+  let totalFee = 0;
+  let grossProfit = 0; // sum of positive realizedPnl trades
+  let grossLoss = 0;   // sum of abs(negative realizedPnl) trades
+
+  for (const trade of allTrades) {
+    const pnl = parseFloat(trade.realizedPnl || "0");
+    const fee = parseFloat(trade.commission || "0");
+    totalRealizedPnl += pnl;
+    totalFee += fee;
+    if (pnl > 0) grossProfit += pnl;
+    if (pnl < 0) grossLoss += Math.abs(pnl);
+  }
+
+  // Net PnL = total realizedPnl - total fees (this matches what Binance shows as "Realized PNL")
+  const netPnl = totalRealizedPnl - totalFee;
+
+  // For the user display:
+  // totalProfit = grossProfit (sum of winning trades' PnL, before fee)
+  // totalLoss = grossLoss + totalFee (losses include both losing trades and all fees)
+  // This ensures: netPnl = totalProfit - totalLoss = grossProfit - grossLoss - totalFee
+  return {
+    totalProfit: grossProfit,
+    totalLoss: grossLoss + totalFee,
+    netPnl,
+    totalFee,
+  };
+}
