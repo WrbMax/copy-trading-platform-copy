@@ -141,7 +141,7 @@ function FundRecordsDialog({ user, onClose }: { user: any; onClose: () => void }
             <table className="w-full text-xs">
               <thead className="sticky top-0 bg-card">
                 <tr className="border-b border-border">
-                  {["ID", "类型", "金额", "备注", "时间"].map((h) => (
+                  {["类型", "金额", "备注", "时间"].map((h) => (
                     <th key={h} className="text-left px-3 py-2 text-muted-foreground font-medium">{h}</th>
                   ))}
                 </tr>
@@ -149,7 +149,6 @@ function FundRecordsDialog({ user, onClose }: { user: any; onClose: () => void }
               <tbody>
                 {items.map((item: any) => (
                   <tr key={item.id} className="border-b border-border/40 hover:bg-secondary/20">
-                    <td className="px-3 py-2 text-muted-foreground">#{item.id}</td>
                     <td className="px-3 py-2">
                       <span className={txTypeColor[item.type] || "text-foreground"}>
                         {txTypeLabel[item.type] || item.type}
@@ -163,7 +162,7 @@ function FundRecordsDialog({ user, onClose }: { user: any; onClose: () => void }
                   </tr>
                 ))}
                 {items.length === 0 && (
-                  <tr><td colSpan={5} className="text-center py-8 text-muted-foreground">暂无记录</td></tr>
+                  <tr><td colSpan={4} className="text-center py-8 text-muted-foreground">暂无记录</td></tr>
                 )}
               </tbody>
             </table>
@@ -173,7 +172,7 @@ function FundRecordsDialog({ user, onClose }: { user: any; onClose: () => void }
             <table className="w-full text-xs">
               <thead className="sticky top-0 bg-card">
                 <tr className="border-b border-border">
-                  {["ID", "金额", "链", "状态", "TxHash", "时间"].map((h) => (
+                  {["金额", "链", "状态", "TxHash", "时间"].map((h) => (
                     <th key={h} className="text-left px-3 py-2 text-muted-foreground font-medium">{h}</th>
                   ))}
                 </tr>
@@ -181,7 +180,6 @@ function FundRecordsDialog({ user, onClose }: { user: any; onClose: () => void }
               <tbody>
                 {items.map((item: any) => (
                   <tr key={item.id} className="border-b border-border/40 hover:bg-secondary/20">
-                    <td className="px-3 py-2 text-muted-foreground">#{item.id}</td>
                     <td className="px-3 py-2 font-semibold text-emerald-400">+{parseFloat(item.amount).toFixed(4)} USDT</td>
                     <td className="px-3 py-2 text-muted-foreground">{item.chain || "BSC"}</td>
                     <td className="px-3 py-2">
@@ -194,7 +192,7 @@ function FundRecordsDialog({ user, onClose }: { user: any; onClose: () => void }
                   </tr>
                 ))}
                 {items.length === 0 && (
-                  <tr><td colSpan={6} className="text-center py-8 text-muted-foreground">暂无充值记录</td></tr>
+                  <tr><td colSpan={5} className="text-center py-8 text-muted-foreground">暂无充值记录</td></tr>
                 )}
               </tbody>
             </table>
@@ -204,7 +202,7 @@ function FundRecordsDialog({ user, onClose }: { user: any; onClose: () => void }
             <table className="w-full text-xs">
               <thead className="sticky top-0 bg-card">
                 <tr className="border-b border-border">
-                  {["ID", "申请金额", "手续费", "实际到账", "地址", "状态", "时间"].map((h) => (
+                  {["申请金额", "手续费", "实际到账", "地址", "状态", "时间"].map((h) => (
                     <th key={h} className="text-left px-3 py-2 text-muted-foreground font-medium">{h}</th>
                   ))}
                 </tr>
@@ -212,7 +210,6 @@ function FundRecordsDialog({ user, onClose }: { user: any; onClose: () => void }
               <tbody>
                 {items.map((item: any) => (
                   <tr key={item.id} className="border-b border-border/40 hover:bg-secondary/20">
-                    <td className="px-3 py-2 text-muted-foreground">#{item.id}</td>
                     <td className="px-3 py-2 font-semibold text-red-400">-{parseFloat(item.amount).toFixed(4)} USDT</td>
                     <td className="px-3 py-2 text-muted-foreground">{parseFloat(item.fee || "0").toFixed(4)}</td>
                     <td className="px-3 py-2 text-foreground">{parseFloat(item.netAmount || "0").toFixed(4)} USDT</td>
@@ -226,7 +223,7 @@ function FundRecordsDialog({ user, onClose }: { user: any; onClose: () => void }
                   </tr>
                 ))}
                 {items.length === 0 && (
-                  <tr><td colSpan={7} className="text-center py-8 text-muted-foreground">暂无提现记录</td></tr>
+                  <tr><td colSpan={6} className="text-center py-8 text-muted-foreground">暂无提现记录</td></tr>
                 )}
               </tbody>
             </table>
