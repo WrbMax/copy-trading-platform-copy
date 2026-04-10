@@ -500,8 +500,6 @@ async function executeCopyTrades(sourceId: number, change: PositionChange) {
         let realizedPnl = 0; // Direct from exchange API
 
         // Query exchange for close order fill details
-        // For Binance: only read closePrice and fee from API; realizedPnl will be calculated
-        // from open/close prices after fetching open orders (avoids FIFO distortion).
         if (userExchange === "binance") {
           const symbol = toBinanceSymbol(change.instId);
           const detail = await getBinanceOrderDetail(
@@ -510,10 +508,8 @@ async function executeCopyTrades(sourceId: number, change: PositionChange) {
           );
           closePrice = parseFloat(detail.avgPrice) || 0;
           fee = Math.abs(parseFloat(detail.commission) || 0);
-          // Note: do NOT use detail.realizedPnl here — Binance FIFO calculation
-          // distorts PnL when user has multiple open positions at different prices.
-          // realizedPnl will be computed per-order below using open/close prices.
-          realizedPnl = 0; // placeholder; overridden below for binance
+          // Use API realizedPnl directly — this matches what users see in Binance
+          realizedPnl = parseFloat(detail.realizedPnl) || 0;
         } else if (userExchange === "bybit") {
           const symbol = toBybitSymbol(change.instId);
           const detail = await getBybitOrderDetail(
@@ -564,66 +560,25 @@ async function executeCopyTrades(sourceId: number, change: PositionChange) {
           // Calculate total quantity across all open orders
           const totalQty = allOpenOrders.reduce((sum, o) => sum + parseFloat(o.actualQuantity || "0"), 0);
 
-          if (userExchange === "binance") {
-            // Binance: compute per-order PnL from open/close prices to avoid FIFO distortion
-            // Determine direction: close_long means we were long (buy low, sell high)
-            const isLong = change.action === "close_long" || change.action === "reduce_long";
-            let totalCalculatedPnl = 0;
+          // All exchanges: use exchange-provided realizedPnl, distribute proportionally by qty
+          // This ensures PnL matches what users see in their exchange account
+          for (const openOrd of allOpenOrders) {
+            const ordQty = parseFloat(openOrd.actualQuantity || "0");
+            const ratio = totalQty > 0 ? ordQty / totalQty : 1 / allOpenOrders.length;
+            const ordRawPnl = rawPnl * ratio;
+            const ordFee = fee * ratio;
+            const ordNetPnl = ordRawPnl - ordFee;
 
-            for (const openOrd of allOpenOrders) {
-              const ordQty = parseFloat(openOrd.actualQuantity || "0");
-              const ordOpenPrice = parseFloat(openOrd.openPrice || "0");
-              const ratio = totalQty > 0 ? ordQty / totalQty : 1 / allOpenOrders.length;
-              const ordFee = fee * ratio;
-
-              // Calculate PnL based on direction
-              let ordRawPnl: number;
-              if (ordOpenPrice > 0 && closePrice > 0) {
-                ordRawPnl = isLong
-                  ? (closePrice - ordOpenPrice) * ordQty
-                  : (ordOpenPrice - closePrice) * ordQty;
-              } else {
-                // Fallback: use API realizedPnl proportionally if open price unavailable
-                ordRawPnl = realizedPnl * ratio;
-                console.warn(`[CopyEngine] ⚠️ Binance order ${openOrd.id}: openPrice unavailable, falling back to API realizedPnl`);
-              }
-
-              const ordNetPnl = ordRawPnl - ordFee;
-              totalCalculatedPnl += ordRawPnl;
-
-              await updateCopyOrder(openOrd.id, {
-                closePrice: closePrice.toFixed(8),
-                closeTime: new Date(),
-                closeOrderId: exchangeOrderId,
-                realizedPnl: ordRawPnl.toFixed(8),
-                fee: ordFee.toFixed(8),
-                netPnl: ordNetPnl.toFixed(8),
-                status: "closed",
-              });
-              console.log(`[CopyEngine] 📊 Binance User ${us.userId} order ${openOrd.id}: openPrice=${ordOpenPrice}, closePrice=${closePrice}, qty=${ordQty}, pnl=${ordRawPnl.toFixed(4)}, fee=${ordFee.toFixed(4)}`);
-            }
-
-            rawPnl = totalCalculatedPnl; // Update rawPnl for close order record
-          } else {
-            // Non-Binance: use exchange-provided realizedPnl, distribute proportionally
-            for (const openOrd of allOpenOrders) {
-              const ordQty = parseFloat(openOrd.actualQuantity || "0");
-              const ratio = totalQty > 0 ? ordQty / totalQty : 1 / allOpenOrders.length;
-              const ordRawPnl = rawPnl * ratio;
-              const ordFee = fee * ratio;
-              const ordNetPnl = ordRawPnl - ordFee;
-
-              await updateCopyOrder(openOrd.id, {
-                closePrice: closePrice.toFixed(8),
-                closeTime: new Date(),
-                closeOrderId: exchangeOrderId,
-                realizedPnl: ordRawPnl.toFixed(8),
-                fee: ordFee.toFixed(8),
-                netPnl: ordNetPnl.toFixed(8),
-                status: "closed",
-              });
-              console.log(`[CopyEngine] 📊 User ${us.userId} order ${openOrd.id}: ratio=${ratio.toFixed(4)}, netPnl=${ordNetPnl.toFixed(4)}`);
-            }
+            await updateCopyOrder(openOrd.id, {
+              closePrice: closePrice.toFixed(8),
+              closeTime: new Date(),
+              closeOrderId: exchangeOrderId,
+              realizedPnl: ordRawPnl.toFixed(8),
+              fee: ordFee.toFixed(8),
+              netPnl: ordNetPnl.toFixed(8),
+              status: "closed",
+            });
+            console.log(`[CopyEngine] 📊 User ${us.userId} order ${openOrd.id}: ratio=${ratio.toFixed(4)}, netPnl=${ordNetPnl.toFixed(4)}`);
           }
         }
 
