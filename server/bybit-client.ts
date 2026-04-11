@@ -11,8 +11,8 @@ export interface BybitCredentials {
 const BASE_URL = "https://api.bybit.com";
 const RECV_WINDOW = "5000";
 
-function sign(secretKey: string, timestamp: string, payload: string): string {
-  const msg = timestamp + secretKey + RECV_WINDOW + payload;
+function sign(apiKey: string, secretKey: string, timestamp: string, payload: string): string {
+  const msg = timestamp + apiKey + RECV_WINDOW + payload;
   return crypto.createHmac("sha256", secretKey).update(msg).digest("hex");
 }
 
@@ -37,7 +37,7 @@ async function bybitRequest<T>(
     signPayload = body;
   }
 
-  const signature = sign(creds.secretKey, timestamp, signPayload);
+  const signature = sign(creds.apiKey, creds.secretKey, timestamp, signPayload);
 
   const res = await fetch(url, {
     method,
