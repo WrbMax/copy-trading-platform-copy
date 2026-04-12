@@ -117,22 +117,73 @@ export async function closeBybitPosition(
   });
 }
 
-/** Query a specific Bybit order to get fill details */
+/** Query a specific Bybit order to get fill details.
+ * First tries active orders (/v5/order/realtime), then falls back to history (/v5/order/history).
+ */
 export async function getBybitOrderDetail(
   creds: BybitCredentials,
   symbol: string,
   orderId: string
-): Promise<{ avgPrice: string; cumExecQty: string; cumExecFee: string; status: string }> {
-  const data = await bybitRequest<{ list: Array<{ avgPrice: string; cumExecQty: string; cumExecFee: string; orderStatus: string }> }>(
-    creds, "GET", "/v5/order/realtime", { category: "linear", symbol, orderId }
-  );
-  const order = data.list?.[0];
+): Promise<{ avgPrice: string; cumExecQty: string; cumExecFee: string; status: string; profit: string }> {
+  type OrderItem = { avgPrice: string; cumExecQty: string; cumExecFee: string; orderStatus: string };
+
+  // Try active orders first
+  let order: OrderItem | undefined;
+  try {
+    const data = await bybitRequest<{ list: Array<OrderItem> }>(
+      creds, "GET", "/v5/order/realtime", { category: "linear", symbol, orderId }
+    );
+    order = data.list?.[0];
+  } catch {
+    // ignore, will try history
+  }
+
+  // If not found in active orders, query history
+  if (!order || !order.avgPrice || order.avgPrice === "0") {
+    try {
+      const data = await bybitRequest<{ list: Array<OrderItem> }>(
+        creds, "GET", "/v5/order/history", { category: "linear", symbol, orderId }
+      );
+      order = data.list?.[0];
+    } catch {
+      // ignore
+    }
+  }
+
   return {
     avgPrice: order?.avgPrice || "0",
     cumExecQty: order?.cumExecQty || "0",
     cumExecFee: order?.cumExecFee || "0",
     status: order?.orderStatus || "UNKNOWN",
+    profit: "0", // Bybit order API doesn't return PnL; use getBybitClosedPnl instead
   };
+}
+
+/**
+ * Query Bybit closed PnL for a specific order.
+ * Calls /v5/position/closed-pnl which returns realized PnL per closing trade.
+ * Returns the closedPnl value matching the given orderId, or 0 if not found.
+ */
+export async function getBybitClosedPnl(
+  creds: BybitCredentials,
+  symbol: string,
+  orderId: string
+): Promise<number> {
+  try {
+    type PnlItem = { orderId: string; closedPnl: string; cumEntryValue: string; cumExitValue: string };
+    // Fetch recent closed PnL records (last 50 should cover the order)
+    const data = await bybitRequest<{ list: Array<PnlItem> }>(
+      creds, "GET", "/v5/position/closed-pnl",
+      { category: "linear", symbol, limit: 50 }
+    );
+    const record = data.list?.find((r) => r.orderId === orderId);
+    if (record) {
+      return parseFloat(record.closedPnl) || 0;
+    }
+    return 0;
+  } catch {
+    return 0;
+  }
 }
 
 /** Get Bybit instrument info for quantity precision */

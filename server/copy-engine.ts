@@ -52,6 +52,7 @@ import {
   getBybitInstrument,
   toBybitSymbol,
   getBybitOrderDetail,
+  getBybitClosedPnl,
 } from "./bybit-client";
 import {
   BitgetCredentials,
@@ -524,7 +525,11 @@ async function executeCopyTrades(sourceId: number, change: PositionChange) {
           );
           closePrice = parseFloat(detail.avgPrice) || 0;
           fee = Math.abs(parseFloat(detail.cumExecFee) || 0);
-          // Bybit order API doesn't return PnL directly; will fallback to manual calc below
+          // Query closed PnL from Bybit /v5/position/closed-pnl endpoint
+          realizedPnl = await getBybitClosedPnl(
+            { apiKey: decrypt(api.apiKeyEncrypted), secretKey: decrypt(api.secretKeyEncrypted) },
+            symbol, exchangeOrderId
+          );
         } else if (userExchange === "bitget") {
           const symbol = toBitgetSymbol(change.instId);
           const detail = await getBitgetOrderDetail(
