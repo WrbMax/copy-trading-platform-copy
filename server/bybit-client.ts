@@ -162,6 +162,8 @@ export async function getBybitOrderDetail(
 /**
  * Query Bybit closed PnL for a specific order.
  * Calls /v5/position/closed-pnl which returns realized PnL per closing trade.
+ * Retries up to 3 times with 2s delay because Bybit may have a short delay
+ * before the closed-pnl record appears after order fill.
  * Returns the closedPnl value matching the given orderId, or 0 if not found.
  */
 export async function getBybitClosedPnl(
@@ -169,21 +171,33 @@ export async function getBybitClosedPnl(
   symbol: string,
   orderId: string
 ): Promise<number> {
-  try {
-    type PnlItem = { orderId: string; closedPnl: string; cumEntryValue: string; cumExitValue: string };
-    // Fetch recent closed PnL records (last 50 should cover the order)
-    const data = await bybitRequest<{ list: Array<PnlItem> }>(
-      creds, "GET", "/v5/position/closed-pnl",
-      { category: "linear", symbol, limit: 50 }
-    );
-    const record = data.list?.find((r) => r.orderId === orderId);
-    if (record) {
-      return parseFloat(record.closedPnl) || 0;
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const maxRetries = 3;
+  const retryDelay = 2000; // 2 seconds
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      type PnlItem = { orderId: string; closedPnl: string; cumEntryValue: string; cumExitValue: string };
+      // Fetch recent closed PnL records (last 50 should cover the order)
+      const data = await bybitRequest<{ list: Array<PnlItem> }>(
+        creds, "GET", "/v5/position/closed-pnl",
+        { category: "linear", symbol, limit: 50 }
+      );
+      const record = data.list?.find((r) => r.orderId === orderId);
+      if (record) {
+        return parseFloat(record.closedPnl) || 0;
+      }
+      // Record not found yet — wait and retry (except on last attempt)
+      if (attempt < maxRetries - 1) {
+        await sleep(retryDelay);
+      }
+    } catch {
+      if (attempt < maxRetries - 1) {
+        await sleep(retryDelay);
+      }
     }
-    return 0;
-  } catch {
-    return 0;
   }
+  return 0;
 }
 
 /** Get Bybit instrument info for quantity precision */
