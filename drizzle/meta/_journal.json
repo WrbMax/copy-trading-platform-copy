@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1774245037824,
+      "tag": "0000_spicy_triathlon",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1774245227637,
+      "tag": "0001_familiar_eddie_brock",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1774249429436,
+      "tag": "0002_lively_ben_urich",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1774250424021,
+      "tag": "0003_polite_black_queen",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1774251033338,
+      "tag": "0004_low_killraven",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1774327348146,
+      "tag": "0005_lucky_maestro",
+      "breakpoints": true
+    }
+  ]
+}
