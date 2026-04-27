@@ -913,9 +913,20 @@ function connectSource(state: SignalSourceState) {
 
       for (const change of changes) {
         console.log(`[CopyEngine] Change: ${change.action} ${change.contractsDelta} on ${change.instId}`);
-        executeCopyTrades(state.id, change).catch((err: unknown) =>
-          console.error("[CopyEngine] executeCopyTrades error:", err)
-        );
+        executeCopyTrades(state.id, change).catch(async (err: unknown) => {
+          console.error("[CopyEngine] executeCopyTrades error:", err);
+          // Ensure any signal log stuck in 'processing' is marked as failed
+          try {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            // Find the most recent processing log for this source and mark it failed
+            const { db } = await import("../drizzle/db");
+            const { signalLogs } = await import("../drizzle/schema");
+            const { eq, and } = await import("drizzle-orm");
+            await db.update(signalLogs)
+              .set({ status: "failed", errorMessage: `引擎异常: ${errMsg}` })
+              .where(and(eq(signalLogs.signalSourceId, state.id), eq(signalLogs.status, "processing")));
+          } catch { /* ignore secondary error */ }
+        });
       }
     }
   });
