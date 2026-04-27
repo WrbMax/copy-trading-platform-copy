@@ -54,7 +54,13 @@ export const strategyRouter = router({
     const apis = await getExchangeApisByUserId(ctx.user.id);
     return strategies.map((s) => ({
       ...s,
-      signalSource: sources.find((src) => src.id === s.signalSourceId),
+      signalSource: (() => {
+        const src = sources.find((src) => src.id === s.signalSourceId);
+        if (!src) return undefined;
+        // Strip sensitive encrypted credentials from signal source
+        const { apiKeyEncrypted, apiSecretEncrypted, passphraseEncrypted, webhookSecret, ...safeSrc } = src as any;
+        return safeSrc;
+      })(),
       exchangeApi: apis.find((a) => a.id === s.exchangeApiId),
     }));
   }),
