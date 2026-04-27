@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   addFundTransaction,
   adjustBalance,
+  deductBalanceForWithdrawal,
   createWithdrawal,
   getDepositById,
   getSystemConfig,
@@ -137,11 +138,11 @@ export const fundsRouter = router({
       const feeRate = parseFloat((await getSystemConfig("withdrawal_fee_rate")) ?? "0.01");
       const fee = input.amount * feeRate;
       const netAmount = input.amount - fee;
-      const balance = parseFloat(user.balance || "0");
-      if (balance < input.amount) throw new TRPCError({ code: "BAD_REQUEST", message: "余额不足" });
-
-      // Atomically deduct balance to prevent concurrent over-withdrawal
-      const newBalanceStr = await adjustBalance(ctx.user.id, -input.amount);
+      // FIX(2026-04-27): Use atomic conditional UPDATE (WHERE balance >= amount) instead of
+      // SELECT-then-UPDATE to eliminate TOCTOU race condition under concurrent withdrawal requests.
+      // deductBalanceForWithdrawal returns null if balance is insufficient (no deduction performed).
+      const newBalanceStr = await deductBalanceForWithdrawal(ctx.user.id, input.amount);
+      if (newBalanceStr === null) throw new TRPCError({ code: "BAD_REQUEST", message: "余额不足" });
 
       // Create withdrawal record
       const withdrawal = await createWithdrawal({

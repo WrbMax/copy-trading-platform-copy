@@ -142,6 +142,32 @@ export async function adjustBalance(userId: number, delta: number): Promise<stri
 }
 
 /**
+ * Atomically deduct balance for a withdrawal using a conditional UPDATE.
+ * Uses WHERE balance >= amount to prevent concurrent over-withdrawal (TOCTOU fix).
+ * Returns the new balance string if deduction succeeded, or null if balance was insufficient.
+ *
+ * FIX(2026-04-27): Replaces the previous SELECT-then-UPDATE pattern in submitWithdrawal
+ * which was vulnerable to TOCTOU race conditions under concurrent requests.
+ */
+export async function deductBalanceForWithdrawal(userId: number, amount: number): Promise<string | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const amountStr = amount.toFixed(8);
+  // Conditional UPDATE: only deducts if current balance >= amount
+  const result = await db.update(users)
+    .set({ balance: sql`balance - ${amountStr}` } as any)
+    .where(sql`${users.id} = ${userId} AND balance >= ${amountStr}`);
+  const affectedRows = (result[0] as any).affectedRows ?? (result[0] as any).rowsAffected ?? 0;
+  if (affectedRows === 0) {
+    // Balance was insufficient (or user not found)
+    return null;
+  }
+  // Read back the new balance
+  const [updated] = await db.select({ balance: users.balance }).from(users).where(eq(users.id, userId));
+  return updated?.balance ?? "0";
+}
+
+/**
  * Atomically adjust user points by a delta amount using SQL relative update.
  * Returns the new points after adjustment.
  */

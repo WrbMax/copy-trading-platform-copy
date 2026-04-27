@@ -183,7 +183,7 @@ export const deposits = mysqlTable("deposits", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
   amount: decimal("amount", { precision: 20, scale: 8 }).notNull(),
-  txHash: varchar("txHash", { length: 128 }),
+  txHash: varchar("txHash", { length: 128 }).unique(),
   fromAddress: varchar("fromAddress", { length: 128 }),
   toAddress: varchar("toAddress", { length: 128 }),
   proofNote: text("proofNote"),
