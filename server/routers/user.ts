@@ -23,13 +23,14 @@ export const userRouter = router({
   profile: protectedProcedure.query(async ({ ctx }) => {
     const user = await getUserById(ctx.user.id);
     if (!user) throw new TRPCError({ code: "NOT_FOUND" });
+    
+    
     // Use real-time stats from copy_orders as single source of truth
     const orderStats = await getUserOrderStats(ctx.user.id);
     return {
       id: user.id,
       email: user.email,
-      name: user.name,
-      inviteCode: user.inviteCode,
+      name: user.name, inviteCode: user.inviteCode,
       balance: user.balance,
       points: user.points,
       totalProfit: orderStats.totalProfit.toFixed(8),
@@ -42,21 +43,17 @@ export const userRouter = router({
       createdAt: user.createdAt,
     };
   }),
-
   teamStats: protectedProcedure.query(async ({ ctx }) => {
     return getTeamStats(ctx.user.id);
   }),
-
   myRevenueShares: protectedProcedure
     .input(z.object({ page: z.number().default(1), limit: z.number().default(20) }))
     .query(async ({ input, ctx }) => {
       return listRevenueShareRecords(ctx.user.id, input.page, input.limit);
     }),
-
   myInvitees: protectedProcedure.query(async ({ ctx }) => {
     return getMyInvitees(ctx.user.id);
   }),
-
   // Legacy: setInviteeRevenueShare is no longer used in the new mechanism
   // Kept as a no-op for backward compatibility if frontend still calls it
   setInviteeRevenueShare: protectedProcedure
@@ -66,7 +63,6 @@ export const userRouter = router({
       // This endpoint is deprecated
       return { success: true, deprecated: true };
     }),
-
   // 查看直推成员的交易记录（只能查看自己直接邀请的人）
   inviteeMemberOrders: protectedProcedure
     .input(z.object({ inviteeId: z.number(), page: z.number().default(1), limit: z.number().default(20) }))
@@ -78,12 +74,10 @@ export const userRouter = router({
       const stats = await getUserOrderStats(input.inviteeId);
       return { ...orders, stats, inviteeName: invitee.name || `用户#${invitee.id}` };
     }),
-
   // Admin
   adminDashboard: adminProcedure.query(async () => {
     return getAdminDashboardStats();
   }),
-
   adminList: adminProcedure
     .input(z.object({
       page: z.number().default(1),
@@ -99,11 +93,11 @@ export const userRouter = router({
       if (input.keyword) {
         result = await searchUsers(input.keyword, input.page, input.limit);
       } else {
-        result = await listUsers(input.page, input.limit, {
-          pLevel: input.pLevel,
+        result = await listUsers(input.page, input.limit, { 
+          pLevel: input.pLevel, 
           isActive: input.isActive,
           sortBy: input.sortBy,
-          sortOrder: input.sortOrder,
+          sortOrder: input.sortOrder
         });
       }
       const { items, total } = result;
@@ -118,7 +112,6 @@ export const userRouter = router({
       }));
       return { items: enriched, total };
     }),
-
   adminGetUser: adminProcedure
     .input(z.object({ userId: z.number() }))
     .query(async ({ input }) => {
@@ -132,20 +125,17 @@ export const userRouter = router({
         teamStats,
       };
     }),
-
   adminGetInvitees: adminProcedure
     .input(z.object({ userId: z.number() }))
     .query(async ({ input }) => {
       return getMyInvitees(input.userId);
     }),
-
   adminToggleUser: adminProcedure
     .input(z.object({ userId: z.number(), isActive: z.boolean() }))
     .mutation(async ({ input }) => {
       await updateUser(input.userId, { isActive: input.isActive });
       return { success: true };
     }),
-
   // Admin: manually set user P level (legacy ratio endpoint kept for compatibility)
   adminSetRevenueShareRatio: adminProcedure
     .input(z.object({
@@ -160,7 +150,6 @@ export const userRouter = router({
       await updateUser(input.userId, { revenueShareRatio: input.ratio.toFixed(2) });
       return { success: true };
     }),
-
   // Admin: manually set user P level
   adminSetUserPLevel: adminProcedure
     .input(z.object({
@@ -173,7 +162,6 @@ export const userRouter = router({
       await updateUser(input.userId, { pLevel: input.pLevel });
       return { success: true };
     }),
-
   adminRevenueShareRecords: adminProcedure
     .input(z.object({
       page: z.number().default(1),
@@ -191,7 +179,6 @@ export const userRouter = router({
         dateTo: dateTo ? new Date(dateTo) : undefined,
       });
     }),
-
   // 搜索用户（支持ID、用户名、邮箱）
   adminSearchUsers: adminProcedure
     .input(z.object({ keyword: z.string(), page: z.number().default(1), limit: z.number().default(20) }))
@@ -208,28 +195,24 @@ export const userRouter = router({
       }));
       return { items: enriched, total };
     }),
-
   // 查看指定用户的充值记录
   adminGetUserDeposits: adminProcedure
     .input(z.object({ userId: z.number(), page: z.number().default(1), limit: z.number().default(20) }))
     .query(async ({ input }) => {
       return listDeposits(input.userId, input.page, input.limit);
     }),
-
   // 查看指定用户的提现记录
   adminGetUserWithdrawals: adminProcedure
     .input(z.object({ userId: z.number(), page: z.number().default(1), limit: z.number().default(20) }))
     .query(async ({ input }) => {
       return listWithdrawals(input.userId, input.page, input.limit);
     }),
-
   // 查看指定用户的资金流水（包含所有类型）
   adminGetUserFundTransactions: adminProcedure
     .input(z.object({ userId: z.number(), page: z.number().default(1), limit: z.number().default(20) }))
     .query(async ({ input }) => {
       return listFundTransactions(input.userId, input.page, input.limit);
     }),
-
   // 查看指定用户的交易订单
   adminGetUserOrders: adminProcedure
     .input(z.object({ userId: z.number(), page: z.number().default(1), limit: z.number().default(20) }))
