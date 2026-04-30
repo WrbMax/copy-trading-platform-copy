@@ -150,13 +150,21 @@ export async function runDailyPerformanceUpdate(): Promise<void> {
     console.log(`[DailyPerf] Updated umbrellaPerformance for ${userBalanceMap.size + ancestorPerformance.size} users`);
 
     // Step 5: Recalculate P-level for all affected ancestors
+    // Skip users whose pLevel was manually locked by admin (pLevelLocked = true)
     const allAffectedIds = new Set([...userBalanceMap.keys(), ...ancestorPerformance.keys()]);
     let pLevelUpdates = 0;
+    let pLevelSkipped = 0;
 
     for (const userId of allAffectedIds) {
       try {
         const user = await getUserById(userId);
         if (!user) continue;
+        // If admin manually locked this user's P-level, skip auto-recalculation
+        if (user.pLevelLocked) {
+          console.log(`[DailyPerf] ⏭️ User #${userId} pLevel locked at P${user.pLevel} by admin, skipping auto-update`);
+          pLevelSkipped++;
+          continue;
+        }
         const smallZonePerf = await getSmallZonePerformance(userId);
         const newPLevel = calcPLevel(smallZonePerf);
         if (newPLevel !== (user.pLevel ?? 0)) {
@@ -170,7 +178,7 @@ export async function runDailyPerformanceUpdate(): Promise<void> {
     }
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(`[DailyPerf] Done. ${pLevelUpdates} P-level changes. Took ${elapsed}s`);
+    console.log(`[DailyPerf] Done. ${pLevelUpdates} P-level changes, ${pLevelSkipped} locked (skipped). Took ${elapsed}s`);
   } catch (e: any) {
     console.error("[DailyPerf] Fatal error:", e.message);
   }

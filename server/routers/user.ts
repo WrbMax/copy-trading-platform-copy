@@ -159,7 +159,17 @@ export const userRouter = router({
     .mutation(async ({ input }) => {
       const user = await getUserById(input.userId);
       if (!user) throw new TRPCError({ code: "NOT_FOUND" });
-      await updateUser(input.userId, { pLevel: input.pLevel });
+      // Lock the pLevel so the daily auto-update job won't overwrite it
+      await updateUser(input.userId, { pLevel: input.pLevel, pLevelLocked: true });
+      return { success: true };
+    }),
+  // Admin: unlock a user's P level so the daily auto-update job can recalculate it
+  adminUnlockUserPLevel: adminProcedure
+    .input(z.object({ userId: z.number() }))
+    .mutation(async ({ input }) => {
+      const user = await getUserById(input.userId);
+      if (!user) throw new TRPCError({ code: "NOT_FOUND" });
+      await updateUser(input.userId, { pLevelLocked: false });
       return { success: true };
     }),
   adminRevenueShareRecords: adminProcedure

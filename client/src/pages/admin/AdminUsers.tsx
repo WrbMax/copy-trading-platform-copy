@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import {
   Search, ChevronLeft, ChevronRight, Settings, Plus, Minus,
-  ChevronDown, ChevronUp, Users, Wallet, BarChart2, ArrowDownCircle, ArrowUpCircle, X
+  ChevronDown, ChevronUp, Users, Wallet, BarChart2, ArrowDownCircle, ArrowUpCircle, X, Lock, LockOpen
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -454,6 +454,18 @@ export default function AdminUsers() {
     onError: (e: any) => toast.error(e.message),
   });
 
+  const unlockPLevelMutation = trpc.user.adminUnlockUserPLevel.useMutation({
+    onSuccess: () => {
+      toast.success("已解锁，凌晨将自动重新计算P身份");
+      utils.user.adminList.invalidate();
+      utils.user.adminSearchUsers.invalidate();
+      utils.user.profile.invalidate();
+      utils.user.teamStats.invalidate();
+      setEditUser(null);
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   const adjustBalanceMutation = trpc.funds.adminAdjustBalance.useMutation({
     onSuccess: (data) => {
       toast.success(`余额调整成功，新余额: ${parseFloat(data.newBalance).toFixed(2)} USDT`);
@@ -580,7 +592,10 @@ export default function AdminUsers() {
                           <span className="font-semibold text-foreground text-xs">{parseFloat(u.balance || "0").toFixed(2)}</span>
                         </td>
                         <td className="px-2 py-3">
-                          <span className={`px-1.5 py-0.5 rounded text-xs ${P_LEVEL_COLORS[u.pLevel ?? 0]}`}>{P_LEVEL_NAMES[u.pLevel ?? 0]}</span>
+                          <span className={`px-1.5 py-0.5 rounded text-xs ${P_LEVEL_COLORS[u.pLevel ?? 0]} inline-flex items-center gap-1`}>
+                            {u.pLevelLocked && <Lock className="w-2.5 h-2.5" />}
+                            {P_LEVEL_NAMES[u.pLevel ?? 0]}
+                          </span>
                         </td>
                         <td className="px-2 py-3 text-xs text-muted-foreground whitespace-nowrap">{formatDate(u.createdAt)}</td>
                         <td className="px-2 py-3">
@@ -643,6 +658,12 @@ export default function AdminUsers() {
               <DialogTitle>设置P身份 - #{editUser?.id} {editUser?.name}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 mt-2">
+              {editUser?.pLevelLocked && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-xs">
+                  <Lock className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>当前等级已手动锁定，凌晨自动任务不会覆盖。如需恢复自动计算，请点击「解锁」。</span>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label>P身份</Label>
                 <Select value={editPLevel} onValueChange={setEditPLevel}>
@@ -655,12 +676,18 @@ export default function AdminUsers() {
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">P身份决定用户在分润链中可获得的身份奖比例（P1:10% ~ P7:55%）</p>
+                <p className="text-xs text-muted-foreground">P身份决定用户在分润链中可获得的身份奖比例（P1:10% ~ P7:55%）。手动保存后将锁定，凌晨不自动覆盖。</p>
               </div>
               <div className="flex gap-2 justify-end">
                 <Button variant="outline" className="bg-transparent" onClick={() => setEditUser(null)}>取消</Button>
+                {editUser?.pLevelLocked && (
+                  <Button variant="outline" className="bg-transparent text-yellow-400 border-yellow-500/40 hover:bg-yellow-500/10" onClick={() => unlockPLevelMutation.mutate({ userId: editUser.id })} disabled={unlockPLevelMutation.isPending}>
+                    <LockOpen className="w-3.5 h-3.5 mr-1" />
+                    {unlockPLevelMutation.isPending ? "解锁中..." : "解锁自动计算"}
+                  </Button>
+                )}
                 <Button onClick={() => updatePLevelMutation.mutate({ userId: editUser.id, pLevel: parseInt(editPLevel) })} disabled={updatePLevelMutation.isPending}>
-                  {updatePLevelMutation.isPending ? "保存中..." : "保存"}
+                  {updatePLevelMutation.isPending ? "保存中..." : "保存并锁定"}
                 </Button>
               </div>
             </div>

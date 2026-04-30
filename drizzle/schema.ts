@@ -29,6 +29,8 @@ export const users = mysqlTable("users", {
   // ─── New revenue share fields ───
   /** P level (0 = no level, 1-7 = P1-P7), auto-calculated from umbrella performance */
   pLevel: int("pLevel").default(0).notNull(),
+  /** If true, pLevel was manually set by admin and should NOT be overwritten by the daily auto-update job */
+  pLevelLocked: boolean("pLevelLocked").default(false).notNull(),
   /** Cumulative umbrella performance (sum of revenue pool consumed by all downstream users) in USDT */
   umbrellaPerformance: decimal("umbrellaPerformance", { precision: 20, scale: 8 }).default("0").notNull(),
   // ─── Legacy field kept for backward compatibility (no longer used in new logic) ───
