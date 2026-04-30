@@ -31,11 +31,13 @@ const ERC20_ABI = [
   "event Transfer(address indexed from, address indexed to, uint256 value)",
 ];
 
-// BSCScan API base
-const BSCSCAN_API = "https://api.bscscan.com/api";
+// BSCScan API base (migrated to Etherscan API V2 - https://docs.etherscan.io/v2-migration)
+// The old api.bscscan.com V1 endpoint is deprecated; use Etherscan V2 with chainid=56
+const BSCSCAN_API = "https://api.etherscan.io/v2/api";
+const BSCSCAN_CHAIN_ID = "56"; // BNB Smart Chain
 
-// Scan interval in ms (3 minutes)
-const SCAN_INTERVAL = 3 * 60 * 1000;
+// Scan interval in ms (1 minute - BSCScan API deprecated, relying on RPC balance detection)
+const SCAN_INTERVAL = 1 * 60 * 1000;
 
 // Track if auto-scan is running
 let autoScanTimer: ReturnType<typeof setInterval> | null = null;
@@ -216,7 +218,7 @@ async function fetchUSDTTransfers(
 }>> {
   try {
     const key = apiKey || (await getSystemConfig("bscscan_api_key")) || "";
-    const url = `${BSCSCAN_API}?module=account&action=tokentx&contractaddress=${USDT_CONTRACT}&address=${address}&startblock=${startBlock}&endblock=99999999&sort=asc&apikey=${key}`;
+    const url = `${BSCSCAN_API}?chainid=${BSCSCAN_CHAIN_ID}&module=account&action=tokentx&contractaddress=${USDT_CONTRACT}&address=${address}&startblock=${startBlock}&endblock=99999999&sort=asc&apikey=${key}`;
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
@@ -274,8 +276,8 @@ async function detectByBalanceChange(
 
   // If balance increased, there's a new deposit
   const diff = currentBalance - lastSnapshot;
-  if (diff < 0.01) {
-    // No significant increase (< 0.01 USDT)
+  if (diff < 0.001) {
+    // No significant increase (< 0.001 USDT)
     // Update snapshot to current balance to keep it fresh (safe: no money involved)
     await setSystemConfig(snapshotKey, currentBalance.toFixed(8));
     return { detected: false, amount: 0, newSnapshot: currentBalance };
@@ -399,40 +401,43 @@ export async function scanDeposits(): Promise<{
 
         let bscscanFound = false;
 
-        // ── Method 1: BSCScan API (if API key available or public endpoint) ──
-        try {
-          const lastBlockKey = `last_block_${address.toLowerCase()}`;
-          const lastBlockStr = await getSystemConfig(lastBlockKey) ?? "0";
-          const lastBlock = parseInt(lastBlockStr, 10);
+        // ── Method 1: BSCScan API (if API key available) ──
+        // NOTE: BSCScan V1 API is deprecated. Etherscan V2 free tier does not support BSC (chain 56).
+        // This block is kept for future compatibility but will silently skip if API returns NOTOK.
+        if (hasBscscanKey) {
+          try {
+            const lastBlockKey = `last_block_${address.toLowerCase()}`;
+            const lastBlockStr = await getSystemConfig(lastBlockKey) ?? "0";
+            const lastBlock = parseInt(lastBlockStr, 10);
 
-          const transfers = await fetchUSDTTransfers(address, lastBlock > 0 ? lastBlock + 1 : 0);
+            const transfers = await fetchUSDTTransfers(address, lastBlock > 0 ? lastBlock + 1 : 0);
 
-          if (transfers.length > 0) {
-            methodUsed = hasBscscanKey ? "bscscan_api" : "bscscan_public";
+            if (transfers.length > 0) {
+              methodUsed = "bscscan_api";
 
-            for (const tx of transfers) {
-              const amount = parseFloat(tx.value);
-              if (amount <= 0) continue;
+              for (const tx of transfers) {
+                const amount = parseFloat(tx.value);
+                if (amount <= 0) continue;
 
-              const didCredit = await creditDeposit(
-                db, userId, amount, address, tx.hash, tx.from,
-                "BSCScan API 自动检测"
-              );
-              if (didCredit) {
-                detected++;
-                credited++;
-                bscscanFound = true;
-              }
+                const didCredit = await creditDeposit(
+                  db, userId, amount, address, tx.hash, tx.from,
+                  "BSCScan API 自动检测"
+                );
+                if (didCredit) {
+                  detected++;
+                  credited++;
+                  bscscanFound = true;
+                }
 
-              // Update last checked block
-              if (tx.blockNumber > lastBlock) {
-                await setSystemConfig(lastBlockKey, tx.blockNumber.toString());
+                // Update last checked block
+                if (tx.blockNumber > lastBlock) {
+                  await setSystemConfig(lastBlockKey, tx.blockNumber.toString());
+                }
               }
             }
+          } catch (bscscanErr: any) {
+            // Silent fallthrough to RPC method - BSCScan API may be unavailable
           }
-        } catch (bscscanErr: any) {
-          console.error(`[Scan] BSCScan method failed for ${address}:`, bscscanErr.message);
-          // Fall through to RPC method
         }
 
         // ── Method 2: RPC Balance Snapshot (fallback / supplement) ──
