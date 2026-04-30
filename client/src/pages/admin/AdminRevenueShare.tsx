@@ -74,6 +74,9 @@ export default function AdminRevenueShare() {
     onSuccess: () => {
       toast.success("用户身份已更新");
       utils.user.adminList.invalidate();
+      // Invalidate user-facing queries so the updated pLevel is reflected immediately
+      utils.user.profile.invalidate();
+      utils.user.teamStats.invalidate();
       setEditUserId(null);
     },
     onError: (e: any) => toast.error(e.message),

@@ -446,6 +446,9 @@ export default function AdminUsers() {
       toast.success("用户P身份已更新");
       utils.user.adminList.invalidate();
       utils.user.adminSearchUsers.invalidate();
+      // Invalidate user-facing queries so the updated pLevel is reflected immediately
+      utils.user.profile.invalidate();
+      utils.user.teamStats.invalidate();
       setEditUser(null);
     },
     onError: (e: any) => toast.error(e.message),

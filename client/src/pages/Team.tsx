@@ -201,8 +201,8 @@ export default function Team() {
   const { lang } = useLang();
   const isZh = lang === "zh";
 
-  const { data: stats } = trpc.user.teamStats.useQuery();
-  const { data: profile } = trpc.user.profile.useQuery();
+  const { data: stats } = trpc.user.teamStats.useQuery(undefined, { staleTime: 0, refetchOnWindowFocus: true });
+  const { data: profile } = trpc.user.profile.useQuery(undefined, { staleTime: 0, refetchOnWindowFocus: true });
   const { data: invitees } = trpc.user.myInvitees.useQuery();
   const { data: directBonusData } = trpc.strategy.myDirectBonusRecords.useQuery({ page: 1, limit: 20 });
   const { data: levelBonusData } = trpc.strategy.myLevelBonusRecords.useQuery({ page: 1, limit: 20 });

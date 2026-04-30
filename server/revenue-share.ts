@@ -216,7 +216,8 @@ export async function processRevenueShare(params: {
       const ancestorUser = await getUserById(ancestor.id);
       if (!ancestorUser) continue;
 
-      const ancestorPLevel = ancestor.pLevel ?? 0;
+      // Use real-time pLevel from DB (not the pre-fetched chain snapshot which may be stale)
+      const ancestorPLevel = ancestorUser.pLevel ?? 0;
       const ancestorRankRate = getRankRate(ancestorPLevel);
 
       const diff = ancestorRankRate - childRankRate;
@@ -258,7 +259,10 @@ export async function processRevenueShare(params: {
     let sameRankAwarded = false;
     for (let i = 0; i < chain.length && !sameRankAwarded; i++) {
       const ancestor = chain[i];
-      const ancestorPLevel = ancestor.pLevel ?? 0;
+      // Use real-time pLevel from DB (not the pre-fetched chain snapshot which may be stale)
+      const ancestorUserRT = await getUserById(ancestor.id);
+      if (!ancestorUserRT) continue;
+      const ancestorPLevel = ancestorUserRT.pLevel ?? 0;
       if (ancestorPLevel === 0) continue; // No level, skip
 
       // The "child" in the chain for this ancestor
@@ -267,7 +271,9 @@ export async function processRevenueShare(params: {
         // The child is the trader — trader has no P level in this context
         continue;
       } else {
-        childPLevel = chain[i - 1].pLevel ?? 0;
+        // Use real-time pLevel for child too
+        const childUserRT = await getUserById(chain[i - 1].id);
+        childPLevel = childUserRT?.pLevel ?? 0;
       }
 
       if (ancestorPLevel > 0 && ancestorPLevel === childPLevel) {
