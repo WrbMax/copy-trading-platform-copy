@@ -247,45 +247,101 @@ async function fetchUSDTTransfers(
   }
 }
 
-// ─── RPC Balance Snapshot Detection (Method 2) ───────────────────────────────
+// ─── RPC Transfer Event Scan Detection (Method 2) ────────────────────────────
 
 /**
- * Detect deposits by comparing current USDT balance with last known snapshot.
- * If balance increased, record the difference as a deposit.
- * Uses balance_snapshot_{address} in system_config for tracking.
+ * Detect deposits by scanning on-chain USDT Transfer events via eth_getLogs.
+ * This replaces the old balance-snapshot approach and fixes the repeated-deposit
+ * blind spot: each Transfer event carries its own TxHash, so every individual
+ * transfer is independently recorded and deduplicated — even when the user sends
+ * multiple deposits to the same address without the balance being swept first.
  *
- * FIX(2026-04-22): 修复快照更新时序漏洞。
- * 原逻辑在 creditDeposit 执行之前就更新快照，若 creditDeposit 中途失败（DB 异常、
- * 进程崩溃等），快照已被推进，下次轮询将检测不到该笔充值，导致用户链上充值
- * 但平台余额未增加（漏账）。
- * 修复方案：detectByBalanceChange 不再负责更新快照，仅返回检测结果和目标余额；
- * 由调用方在 creditDeposit 成功后统一更新快照，确保「加钱」与「推进快照」的
- * 原子语义：加钱成功 → 推进快照；加钱失败 → 快照不变 → 下次轮询重试。
+ * Algorithm:
+ *  1. Read `last_block_{address}` from system_config (default: current block - 5000).
+ *  2. Call eth_getLogs for Transfer events on the USDT contract where `to` = deposit address.
+ *  3. For each matching log, decode the amount and call creditDeposit with the real TxHash.
+ *  4. Update `last_block_{address}` to the latest scanned block.
+ *
+ * Dedup is handled by creditDeposit via TxHash uniqueness in the deposits table.
  */
-async function detectByBalanceChange(
+async function detectByTransferEvents(
   userId: number,
   address: string,
   db: NonNullable<Awaited<ReturnType<typeof getDb>>>
-): Promise<{ detected: boolean; amount: number; newSnapshot: number }> {
-  const snapshotKey = `balance_snapshot_${address.toLowerCase()}`;
-  const lastSnapshotStr = await getSystemConfig(snapshotKey) ?? "0";
-  const lastSnapshot = parseFloat(lastSnapshotStr);
+): Promise<{ detected: number; credited: number }> {
+  const lastBlockKey = `last_block_${address.toLowerCase()}`;
+  const lastBlockStr = await getSystemConfig(lastBlockKey);
 
-  const currentBalanceStr = await getUSDTBalance(address);
-  const currentBalance = parseFloat(currentBalanceStr);
-
-  // If balance increased, there's a new deposit
-  const diff = currentBalance - lastSnapshot;
-  if (diff < 0.001) {
-    // No significant increase (< 0.001 USDT)
-    // Update snapshot to current balance to keep it fresh (safe: no money involved)
-    await setSystemConfig(snapshotKey, currentBalance.toFixed(8));
-    return { detected: false, amount: 0, newSnapshot: currentBalance };
+  let fromBlock: number;
+  try {
+    const provider = await getProviderWithFallback();
+    const currentBlock = await provider.getBlockNumber();
+    // First run: scan last 5000 blocks (~4 hours on BSC)
+    fromBlock = lastBlockStr ? parseInt(lastBlockStr, 10) + 1 : Math.max(0, currentBlock - 5000);
+  } catch {
+    return { detected: 0, credited: 0 };
   }
 
-  // FIX: 不在此处更新快照，将 newSnapshot 返回给调用方，
-  // 由调用方在 creditDeposit 成功后再更新，防止漏账。
-  return { detected: true, amount: diff, newSnapshot: currentBalance };
+  try {
+    const provider = await getProviderWithFallback();
+    const currentBlock = await provider.getBlockNumber();
+
+    if (fromBlock > currentBlock) {
+      return { detected: 0, credited: 0 };
+    }
+
+    // Limit scan range to 2000 blocks per round to avoid RPC limits
+    const toBlock = Math.min(currentBlock, fromBlock + 2000);
+
+    // ERC-20 Transfer event topic
+    const transferTopic = ethers.id("Transfer(address,address,uint256)");
+    // Pad address to 32-byte topic
+    const addressTopic = "0x" + address.toLowerCase().replace("0x", "").padStart(64, "0");
+
+    const logs = await provider.getLogs({
+      address: USDT_CONTRACT,
+      topics: [transferTopic, null, addressTopic],
+      fromBlock,
+      toBlock,
+    });
+
+    let detected = 0;
+    let credited = 0;
+
+    for (const log of logs) {
+      try {
+        const amount = parseFloat(ethers.formatUnits(log.data, 18));
+        if (amount < 0.001) continue;
+
+        const fromAddr = "0x" + log.topics[1].slice(26);
+        const txHash = log.transactionHash;
+
+        const didCredit = await creditDeposit(
+          db, userId, amount, address, txHash, fromAddr,
+          "链上Transfer事件自动检测"
+        );
+        detected++;
+        if (didCredit) credited++;
+      } catch (logErr: any) {
+        console.error(`[Scan] Error processing log ${log.transactionHash}:`, logErr.message);
+      }
+    }
+
+    // Always advance the last scanned block
+    await setSystemConfig(lastBlockKey, toBlock.toString());
+
+    // Also keep balance snapshot in sync (for display purposes)
+    try {
+      const currentBalance = await getUSDTBalance(address);
+      const snapshotKey = `balance_snapshot_${address.toLowerCase()}`;
+      await setSystemConfig(snapshotKey, parseFloat(currentBalance).toFixed(8));
+    } catch {}
+
+    return { detected, credited };
+  } catch (err: any) {
+    console.error(`[Scan] Transfer event scan failed for ${address}:`, err.message);
+    return { detected: 0, credited: 0 };
+  }
 }
 
 // ─── Unified Deposit Detection & Auto-Credit ─────────────────────────────────
@@ -440,41 +496,27 @@ export async function scanDeposits(): Promise<{
           }
         }
 
-        // ── Method 2: RPC Balance Snapshot (fallback / supplement) ──
-        // Only use if BSCScan didn't find anything new
+        // ── Method 2: Transfer Event Scan (replaces old RPC balance snapshot) ──
+        // Always run: scans on-chain Transfer events by block range, dedup by TxHash.
+        // Correctly handles repeated deposits to the same address without sweeping.
         if (!bscscanFound) {
           try {
-            const { detected: balanceDetected, amount, newSnapshot } = await detectByBalanceChange(userId, address, db);
-            if (balanceDetected && amount > 0) {
-              methodUsed = methodUsed === "none" ? "rpc_balance" : methodUsed + "+rpc_balance";
-
-              // FIX(2026-04-22): 快照更新移至 creditDeposit 成功之后执行。
-              // 原逻辑在 detectByBalanceChange 内部提前更新快照，若后续加钱失败则漏账。
-              // 现在：creditDeposit 成功返回 true 后，才将快照推进到 newSnapshot，
-              // 确保「加钱」与「推进快照」的顺序一致性。
-              const didCredit = await creditDeposit(
-                db, userId, amount, address, null, null,
-                "RPC余额变化检测"
-              );
-              if (didCredit) {
-                detected++;
-                credited++;
-                // 加钱成功后才更新快照，防止漏账
-                const snapshotKey = `balance_snapshot_${address.toLowerCase()}`;
-                await setSystemConfig(snapshotKey, newSnapshot.toFixed(8));
-              }
-              // 若 didCredit = false（重复充值被拦截），快照也应更新以防止下次重复检测
-              else {
-                const snapshotKey = `balance_snapshot_${address.toLowerCase()}`;
-                await setSystemConfig(snapshotKey, newSnapshot.toFixed(8));
-              }
+            const { detected: evDetected, credited: evCredited } = await detectByTransferEvents(userId, address, db);
+            if (evDetected > 0) {
+              methodUsed = methodUsed === "none" ? "rpc_transfer_events" : methodUsed + "+rpc_transfer_events";
+              detected += evDetected;
+              credited += evCredited;
             }
           } catch (rpcErr: any) {
-            errors.push(`RPC balance check for user ${userId}: ${rpcErr.message}`);
+            errors.push(`Transfer event scan for user ${userId}: ${rpcErr.message}`);
           }
         } else {
-          // BSCScan found deposits, update balance snapshot to current to prevent RPC double-credit next time
+          // BSCScan found deposits, still advance the block pointer for Transfer scan
           try {
+            const provider = await getProviderWithFallback();
+            const currentBlock = await provider.getBlockNumber();
+            const lastBlockKey = `last_block_${address.toLowerCase()}`;
+            await setSystemConfig(lastBlockKey, currentBlock.toString());
             const currentBalance = await getUSDTBalance(address);
             const snapshotKey = `balance_snapshot_${address.toLowerCase()}`;
             await setSystemConfig(snapshotKey, parseFloat(currentBalance).toFixed(8));
