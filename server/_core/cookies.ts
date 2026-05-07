@@ -43,8 +43,9 @@ export function getSessionCookieOptions(
   return {
     httpOnly: true,
     path: "/",
-    // SameSite=None requires Secure=true (HTTPS). For HTTP deployments use lax.
-    sameSite: secure ? "none" : "lax",
+    // Use lax for same-site requests (works for both HTTP and HTTPS).
+    // SameSite=None would require cross-site usage which is not needed here.
+    sameSite: "lax",
     secure,
   };
 }

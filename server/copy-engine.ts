@@ -268,6 +268,33 @@ async function executeCopyTrades(sourceId: number, change: PositionChange) {
     return;
   }
 
+  // ── Safety net: ensure signal status is always finalized even if an unexpected error occurs ──
+  let signalFinalized = false;
+  const finalizeSignal = async (successCount: number, totalUsers: number, totalTime: number) => {
+    if (signalFinalized) return;
+    signalFinalized = true;
+    const failCount = totalUsers - successCount;
+    await updateSignalLog(logId, {
+      status: "completed",
+      totalUsers,
+      successCount,
+      failCount,
+      executionTimeMs: totalTime,
+      errorMessage: successCount === 0
+        ? `所有 ${totalUsers} 个用户跟单失败`
+        : successCount < totalUsers
+          ? `${successCount}/${totalUsers} 个用户跟单成功`
+          : undefined,
+    });
+  };
+
+  // Batched parallel execution variables (declared outside try so finally can access them)
+  const BATCH_SIZE = 20; // Max concurrent exchange API calls per batch
+  const allResults: boolean[] = [];
+
+  // Wrap the entire execution in try/finally so finalizeSignal is always called
+  try {
+
   // ── Pre-fetch shared data ONCE (avoid repeated API calls per user) ──
   const instrument = await getInstrument(change.instId);
   const ctVal = instrument ? parseFloat(instrument.ctVal) : 0.01;
@@ -650,6 +677,29 @@ async function executeCopyTrades(sourceId: number, change: PositionChange) {
               traderId: us.userId,
               netPnl,
             });
+            
+            // Fix: Also update all related open orders with the same revenueShareDeducted
+            // to ensure they are marked as processed and dashboard stats are correct
+            const theoreticalTotalDeduction = netPnl * 0.4; // TOTAL_DEDUCTION_RATE
+            const trader = await getUserById(us.userId);
+            const traderBalance = parseFloat(trader?.balance || "0");
+            const actualTotalDeduction = Math.min(theoreticalTotalDeduction, traderBalance);
+            
+            if (actualTotalDeduction > 0 && allOpenOrders.length > 0) {
+              // Distribute deduction proportionally among open orders based on their qty
+              const totalQty = allOpenOrders.reduce((sum, o) => sum + parseFloat(o.actualQuantity || "0"), 0);
+              for (const openOrd of allOpenOrders) {
+                const ordQty = parseFloat(openOrd.actualQuantity || "0");
+                if (ordQty > 0 && totalQty > 0) {
+                  const ratio = ordQty / totalQty;
+                  const ordDeduction = actualTotalDeduction * ratio;
+                  await updateCopyOrder(openOrd.id, {
+                    revenueShareDeducted: ordDeduction.toFixed(8)
+                  });
+                }
+              }
+            }
+
             console.log(`[CopyEngine] 💰 Revenue share processed for user ${us.userId}, netPnl=${netPnl.toFixed(4)}`);
           } catch (rsErr: unknown) {
             const rsMsg = rsErr instanceof Error ? rsErr.message : String(rsErr);
@@ -753,8 +803,6 @@ async function executeCopyTrades(sourceId: number, change: PositionChange) {
   // ── Batched parallel execution with concurrency control ──
   // Process users in batches to avoid overwhelming exchange APIs and connection pools.
   // Each batch runs fully in parallel; batches run sequentially.
-  const BATCH_SIZE = 20; // Max concurrent exchange API calls per batch
-  const allResults: boolean[] = [];
 
   for (let i = 0; i < userStrategies.length; i += BATCH_SIZE) {
     const batch = userStrategies.slice(i, i + BATCH_SIZE);
@@ -791,20 +839,18 @@ async function executeCopyTrades(sourceId: number, change: PositionChange) {
   const successCount = allResults.filter(Boolean).length;
   const totalTime = Date.now() - signalTime;
 
-  const failCount = userStrategies.length - successCount;
-  await updateSignalLog(logId, {
-    status: "completed",
-    totalUsers: userStrategies.length,
-    successCount,
-    failCount,
-    executionTimeMs: totalTime,
-    errorMessage: successCount === 0
-      ? `所有 ${userStrategies.length} 个用户跟单失败`
-      : successCount < userStrategies.length
-        ? `${successCount}/${userStrategies.length} 个用户跟单成功`
-        : undefined,
-  });
+  await finalizeSignal(successCount, userStrategies.length, totalTime);
   console.log(`[CopyEngine] Done: ${successCount}/${userStrategies.length} succeeded, total=${totalTime}ms, batches=${Math.ceil(userStrategies.length / BATCH_SIZE)}`);
+  } finally {
+    // Guarantee: if execution was interrupted (e.g. timeout, unhandled rejection),
+    // mark the signal as completed with whatever partial results we have.
+    if (!signalFinalized) {
+      const partialSuccess = allResults.filter(Boolean).length;
+      const elapsed = Date.now() - signalTime;
+      await finalizeSignal(partialSuccess, userStrategies.length, elapsed).catch(() => {});
+      console.warn(`[CopyEngine] ⚠️ Signal ${logId} finalized in finally block (partialSuccess=${partialSuccess})`);
+    }
+  }
 }
 
 // ─── WebSocket Connection ─────────────────────────────────────────────────────
@@ -911,23 +957,32 @@ function connectSource(state: SignalSourceState) {
         }
       }
 
-      for (const change of changes) {
-        console.log(`[CopyEngine] Change: ${change.action} ${change.contractsDelta} on ${change.instId}`);
-        executeCopyTrades(state.id, change).catch(async (err: unknown) => {
-          console.error("[CopyEngine] executeCopyTrades error:", err);
-          // Ensure any signal log stuck in 'processing' is marked as failed
+      // Process changes SEQUENTIALLY to prevent race conditions:
+      // When multiple reduce/close signals arrive in rapid succession, parallel execution
+      // causes findAllUserOpenOrders to return empty (previous signal hasn't committed yet),
+      // resulting in NULL realizedPnl. Sequential processing ensures each signal fully
+      // completes (including DB writes) before the next one starts.
+      (async () => {
+        for (const change of changes) {
+          console.log(`[CopyEngine] Change: ${change.action} ${change.contractsDelta} on ${change.instId}`);
           try {
-            const errMsg = err instanceof Error ? err.message : String(err);
-            // Find the most recent processing log for this source and mark it failed
-            const { db } = await import("../drizzle/db");
-            const { signalLogs } = await import("../drizzle/schema");
-            const { eq, and } = await import("drizzle-orm");
-            await db.update(signalLogs)
-              .set({ status: "failed", errorMessage: `引擎异常: ${errMsg}` })
-              .where(and(eq(signalLogs.signalSourceId, state.id), eq(signalLogs.status, "processing")));
-          } catch { /* ignore secondary error */ }
-        });
-      }
+            await executeCopyTrades(state.id, change);
+          } catch (err: unknown) {
+            console.error("[CopyEngine] executeCopyTrades error:", err);
+            // Ensure any signal log stuck in 'processing' is marked as failed
+            try {
+              const errMsg = err instanceof Error ? err.message : String(err);
+              // Find the most recent processing log for this source and mark it failed
+              const { db } = await import("../drizzle/db");
+              const { signalLogs } = await import("../drizzle/schema");
+              const { eq, and } = await import("drizzle-orm");
+              await db.update(signalLogs)
+                .set({ status: "failed", errorMessage: `引擎异常: ${errMsg}` })
+                .where(and(eq(signalLogs.signalSourceId, state.id), eq(signalLogs.status, "processing")));
+            } catch { /* ignore secondary error */ }
+          }
+        }
+      })();
     }
   });
 

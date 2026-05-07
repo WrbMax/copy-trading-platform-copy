@@ -14,11 +14,13 @@ import { deposits, systemConfig } from "../drizzle/schema";
 import { eq, sql } from "drizzle-orm";
 
 // BSC Mainnet config
-const BSC_RPC_URL = "https://bsc-dataseed1.binance.org";
+// Using Ankr public endpoint which supports multi-address topics filter in eth_getLogs
+// (bsc-dataseed*.binance.org triggers rate limits on eth_getLogs with multiple topics)
+const BSC_RPC_URL = "https://rpc.ankr.com/bsc";
 const BSC_RPC_FALLBACKS = [
+  "https://bsc.publicnode.com",
+  "https://bsc-dataseed1.binance.org",
   "https://bsc-dataseed2.binance.org",
-  "https://bsc-dataseed3.binance.org",
-  "https://bsc-dataseed1.defibit.io",
 ];
 const BSC_CHAIN_ID = 56;
 const USDT_CONTRACT = "0x55d398326f99059fF775485246999027B3197955"; // BSC USDT
@@ -44,22 +46,47 @@ let autoScanTimer: ReturnType<typeof setInterval> | null = null;
 
 // ─── Helper: get provider with fallback ──────────────────────────────────────
 
+// Cached provider to avoid creating new instances on every call
+let cachedProvider: ethers.JsonRpcProvider | null = null;
+let cachedProviderUrl: string = BSC_RPC_URL;
+let lastProviderCheck = 0;
+const PROVIDER_CACHE_TTL = 5 * 60 * 1000; // re-validate every 5 minutes
+
 function getProvider(): ethers.JsonRpcProvider {
   return new ethers.JsonRpcProvider(BSC_RPC_URL, BSC_CHAIN_ID);
 }
 
 async function getProviderWithFallback(): Promise<ethers.JsonRpcProvider> {
+  const now = Date.now();
+  // Return cached provider if still valid
+  if (cachedProvider && (now - lastProviderCheck) < PROVIDER_CACHE_TTL) {
+    return cachedProvider;
+  }
+  // Try each URL, use a direct fetch instead of getBlockNumber to avoid noisy logs
   const urls = [BSC_RPC_URL, ...BSC_RPC_FALLBACKS];
   for (const url of urls) {
     try {
-      const provider = new ethers.JsonRpcProvider(url, BSC_CHAIN_ID);
-      await provider.getBlockNumber(); // quick health check
-      return provider;
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", method: "eth_blockNumber", params: [], id: 1 }),
+        signal: AbortSignal.timeout(3000),
+      });
+      if (resp.ok) {
+        const data = await resp.json() as { result?: string };
+        if (data.result) {
+          cachedProvider = new ethers.JsonRpcProvider(url, BSC_CHAIN_ID, { staticNetwork: true });
+          cachedProviderUrl = url;
+          lastProviderCheck = now;
+          return cachedProvider;
+        }
+      }
     } catch {
       continue;
     }
   }
-  return new ethers.JsonRpcProvider(BSC_RPC_URL, BSC_CHAIN_ID);
+  // All failed, return primary without caching
+  return new ethers.JsonRpcProvider(BSC_RPC_URL, BSC_CHAIN_ID, { staticNetwork: true });
 }
 
 // ─── HD Wallet Functions ──────────────────────────────────────────────────────
@@ -415,8 +442,21 @@ async function creditDeposit(
 
 /**
  * Scan all user deposit addresses for new USDT deposits.
- * Dual detection: BSCScan API (precise txHash) + RPC balance snapshot (fallback).
- * Dedup ensures no double-crediting.
+ *
+ * ── Merged Scan Strategy ──
+ * Instead of sending one eth_getLogs request per address (which triggers rate limits
+ * when there are many addresses), we send a SINGLE eth_getLogs request with all
+ * deposit addresses in the `topics[2]` array. BSC nodes support up to ~1000 addresses
+ * in a single topics filter, so this scales to any number of users.
+ *
+ * Flow:
+ *  1. Load all deposit addresses from DB.
+ *  2. Determine the global fromBlock = min(last_block across all addresses).
+ *  3. Send ONE eth_getLogs for USDT Transfer events where `to` is ANY of our addresses.
+ *  4. Group matching logs by recipient address → credit each user.
+ *  5. Advance each address's last_block pointer to toBlock.
+ *
+ * Dedup is handled by creditDeposit via TxHash uniqueness in the deposits table.
  */
 export async function scanDeposits(): Promise<{
   detected: number;
@@ -433,10 +473,9 @@ export async function scanDeposits(): Promise<{
   const errors: string[] = [];
   let detected = 0;
   let credited = 0;
-  let methodUsed = "none";
 
   try {
-    // Get all user deposit address configs
+    // ── Step 1: Load all deposit addresses ──
     const configs = await db.select().from(systemConfig)
       .where(sql`\`key\` LIKE 'deposit_addr_%'`);
 
@@ -444,95 +483,146 @@ export async function scanDeposits(): Promise<{
       return { detected: 0, credited: 0, errors: [], method: "no_addresses" };
     }
 
-    const hasBscscanKey = !!(await getSystemConfig("bscscan_api_key"));
+    // Build address → userId map
+    const addressToUserId = new Map<string, number>();
+    const lastBlockMap = new Map<string, number>(); // address.toLowerCase() → lastBlock
 
     for (const config of configs) {
       try {
         const userIdStr = config.key.replace("deposit_addr_", "");
         const userId = parseInt(userIdStr, 10);
         if (isNaN(userId)) continue;
-
         const addrData = JSON.parse(config.value);
-        const address = addrData.address;
+        const address: string = addrData.address;
+        addressToUserId.set(address.toLowerCase(), userId);
 
-        let bscscanFound = false;
-
-        // ── Method 1: BSCScan API (if API key available) ──
-        // NOTE: BSCScan V1 API is deprecated. Etherscan V2 free tier does not support BSC (chain 56).
-        // This block is kept for future compatibility but will silently skip if API returns NOTOK.
-        if (hasBscscanKey) {
-          try {
-            const lastBlockKey = `last_block_${address.toLowerCase()}`;
-            const lastBlockStr = await getSystemConfig(lastBlockKey) ?? "0";
-            const lastBlock = parseInt(lastBlockStr, 10);
-
-            const transfers = await fetchUSDTTransfers(address, lastBlock > 0 ? lastBlock + 1 : 0);
-
-            if (transfers.length > 0) {
-              methodUsed = "bscscan_api";
-
-              for (const tx of transfers) {
-                const amount = parseFloat(tx.value);
-                if (amount <= 0) continue;
-
-                const didCredit = await creditDeposit(
-                  db, userId, amount, address, tx.hash, tx.from,
-                  "BSCScan API 自动检测"
-                );
-                if (didCredit) {
-                  detected++;
-                  credited++;
-                  bscscanFound = true;
-                }
-
-                // Update last checked block
-                if (tx.blockNumber > lastBlock) {
-                  await setSystemConfig(lastBlockKey, tx.blockNumber.toString());
-                }
-              }
-            }
-          } catch (bscscanErr: any) {
-            // Silent fallthrough to RPC method - BSCScan API may be unavailable
-          }
-        }
-
-        // ── Method 2: Transfer Event Scan (replaces old RPC balance snapshot) ──
-        // Always run: scans on-chain Transfer events by block range, dedup by TxHash.
-        // Correctly handles repeated deposits to the same address without sweeping.
-        if (!bscscanFound) {
-          try {
-            const { detected: evDetected, credited: evCredited } = await detectByTransferEvents(userId, address, db);
-            if (evDetected > 0) {
-              methodUsed = methodUsed === "none" ? "rpc_transfer_events" : methodUsed + "+rpc_transfer_events";
-              detected += evDetected;
-              credited += evCredited;
-            }
-          } catch (rpcErr: any) {
-            errors.push(`Transfer event scan for user ${userId}: ${rpcErr.message}`);
-          }
-        } else {
-          // BSCScan found deposits, still advance the block pointer for Transfer scan
-          try {
-            const provider = await getProviderWithFallback();
-            const currentBlock = await provider.getBlockNumber();
-            const lastBlockKey = `last_block_${address.toLowerCase()}`;
-            await setSystemConfig(lastBlockKey, currentBlock.toString());
-            const currentBalance = await getUSDTBalance(address);
-            const snapshotKey = `balance_snapshot_${address.toLowerCase()}`;
-            await setSystemConfig(snapshotKey, parseFloat(currentBalance).toFixed(8));
-          } catch {}
-        }
-
+        const lastBlockKey = `last_block_${address.toLowerCase()}`;
+        const lastBlockStr = await getSystemConfig(lastBlockKey);
+        lastBlockMap.set(address.toLowerCase(), lastBlockStr ? parseInt(lastBlockStr, 10) : -1);
       } catch (err: any) {
-        errors.push(`User ${config.key}: ${err.message}`);
+        errors.push(`Parse config ${config.key}: ${err.message}`);
       }
     }
+
+    if (addressToUserId.size === 0) {
+      return { detected: 0, credited: 0, errors, method: "no_valid_addresses" };
+    }
+
+    // ── Step 2: Get current block and compute fromBlock / toBlock ──
+    let provider: ethers.JsonRpcProvider;
+    let currentBlock: number;
+    try {
+      provider = await getProviderWithFallback();
+      currentBlock = await provider.getBlockNumber();
+    } catch (err: any) {
+      errors.push(`RPC getBlockNumber failed: ${err.message}`);
+      console.log(`[Scan] Complete: detected=0, credited=0, method=none, errors=${errors.length}`);
+      return { detected: 0, credited: 0, errors, method: "none" };
+    }
+
+    // fromBlock = earliest unscanned block across all addresses
+    // For new addresses (lastBlock = -1), start from 5000 blocks ago (~4 hours on BSC)
+    const defaultFromBlock = Math.max(0, currentBlock - 5000);
+    let globalFromBlock = currentBlock; // will be reduced to the minimum
+    for (const [, lastBlock] of lastBlockMap) {
+      const addrFrom = lastBlock === -1 ? defaultFromBlock : lastBlock + 1;
+      if (addrFrom < globalFromBlock) globalFromBlock = addrFrom;
+    }
+
+    if (globalFromBlock > currentBlock) {
+      // All addresses are fully up-to-date
+      console.log(`[Scan] Complete: detected=0, credited=0, method=merged_transfer_events, errors=0`);
+      return { detected: 0, credited: 0, errors: [], method: "merged_transfer_events" };
+    }
+
+    // Limit to 2000 blocks per round to stay within RPC limits
+    const toBlock = Math.min(currentBlock, globalFromBlock + 2000);
+
+    // Guard: skip this round if block range is invalid (can happen when RPC returns stale block number)
+    if (globalFromBlock > toBlock) {
+      console.log(`[Scan] Skipping round: fromBlock(${globalFromBlock}) > toBlock(${toBlock}), RPC may have returned stale block`);
+      console.log(`[Scan] Complete: detected=0, credited=0, method=merged_transfer_events, errors=0`);
+      return { detected: 0, credited: 0, errors: [], method: "merged_transfer_events" };
+    }
+
+    // ── Step 3: Single merged eth_getLogs request ──
+    const transferTopic = ethers.id("Transfer(address,address,uint256)");
+    // Build topics[2] array: all deposit addresses padded to 32 bytes
+    const addressTopics = Array.from(addressToUserId.keys()).map(
+      (addr) => "0x" + addr.replace("0x", "").padStart(64, "0")
+    );
+
+    let logs: ethers.Log[];
+    try {
+      logs = await provider.getLogs({
+        address: USDT_CONTRACT,
+        topics: [transferTopic, null, addressTopics],
+        fromBlock: globalFromBlock,
+        toBlock,
+      });
+    } catch (err: any) {
+      // If invalid block range, clear provider cache so next round picks a fresh node
+      if (err.message && (err.message.includes('invalid block range') || err.message.includes('-32000'))) {
+        cachedProvider = null;
+        lastProviderCheck = 0;
+        console.log(`[Scan] Cleared provider cache due to invalid block range, will retry next round`);
+        console.log(`[Scan] Complete: detected=0, credited=0, method=merged_transfer_events, errors=0`);
+        return { detected: 0, credited: 0, errors: [], method: "merged_transfer_events" };
+      }
+      errors.push(`eth_getLogs merged scan failed: ${err.message}`);
+      console.log(`[Scan] Complete: detected=0, credited=0, method=merged_transfer_events, errors=${errors.length}`);
+      return { detected: 0, credited: 0, errors, method: "merged_transfer_events" };
+    }
+
+    console.log(`[Scan] Merged getLogs: fromBlock=${globalFromBlock}, toBlock=${toBlock}, logs=${logs.length}, addresses=${addressToUserId.size}`);
+
+    // ── Step 4: Process logs and credit each user ──
+    for (const log of logs) {
+      try {
+        // topics[2] is the `to` address (padded to 32 bytes)
+        const toAddrRaw = log.topics[2];
+        if (!toAddrRaw) continue;
+        const toAddr = "0x" + toAddrRaw.slice(26); // strip leading zeros
+        const toAddrLower = toAddr.toLowerCase();
+
+        const userId = addressToUserId.get(toAddrLower);
+        if (userId === undefined) continue;
+
+        const amount = parseFloat(ethers.formatUnits(log.data, 18));
+        if (amount < 0.001) continue;
+
+        const fromAddr = "0x" + log.topics[1].slice(26);
+        const txHash = log.transactionHash;
+
+        const didCredit = await creditDeposit(
+          db, userId, amount, toAddr, txHash, fromAddr,
+          "链上Transfer事件合并扫描自动检测"
+        );
+        detected++;
+        if (didCredit) credited++;
+      } catch (logErr: any) {
+        errors.push(`Process log ${log.transactionHash}: ${logErr.message}`);
+      }
+    }
+
+    // ── Step 5: Advance last_block pointer for all addresses ──
+    for (const [addrLower] of addressToUserId) {
+      try {
+        const addrLastBlock = lastBlockMap.get(addrLower) ?? -1;
+        // Only advance if this address's fromBlock was within our scan range
+        const addrFrom = addrLastBlock === -1 ? defaultFromBlock : addrLastBlock + 1;
+        if (addrFrom <= toBlock) {
+          await setSystemConfig(`last_block_${addrLower}`, toBlock.toString());
+        }
+      } catch {}
+    }
+
   } catch (err: any) {
     errors.push(`Scan error: ${err.message}`);
   }
 
-  console.log(`[Scan] Complete: detected=${detected}, credited=${credited}, method=${methodUsed}, errors=${errors.length}`);
-  return { detected, credited, errors, method: methodUsed };
+  console.log(`[Scan] Complete: detected=${detected}, credited=${credited}, method=merged_transfer_events, errors=${errors.length}`);
+  return { detected, credited, errors, method: "merged_transfer_events" };
 }
 
 // ─── Auto Collection (Sweep) ──────────────────────────────────────────────────

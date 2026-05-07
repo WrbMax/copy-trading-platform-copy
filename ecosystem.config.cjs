@@ -7,6 +7,15 @@ module.exports = {
     autorestart: true,
     watch: false,
     max_memory_restart: '400M',
+    // 确保旧进程完全退出后再启动新进程，避免端口占用冲突
+    kill_timeout: 5000,
+    // 等待进程就绪的超时时间
+    listen_timeout: 10000,
+    // 进程崩溃后延迟重启，避免快速循环重启
+    restart_delay: 2000,
+    // 最大重启次数（24小时内），超过后停止自动重启，防止无限循环
+    max_restarts: 20,
+    min_uptime: '10s',
     env: {
       NODE_ENV: 'production',
       PORT: '3001',

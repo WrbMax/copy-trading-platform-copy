@@ -18,23 +18,38 @@ export default function Invite() {
   const inviteUrl = `${window.location.origin}${basePath}/register?ref=${inviteCode}`;
 
   const copy = async (text: string, label: string) => {
-    try {
-      if (navigator.clipboard && window.isSecureContext) {
+    // 方法1：现代 Clipboard API（HTTPS + 用户授权）
+    if (navigator.clipboard && window.isSecureContext) {
+      try {
         await navigator.clipboard.writeText(text);
-      } else {
-        const textarea = document.createElement("textarea");
-        textarea.value = text;
-        textarea.style.position = "fixed";
-        textarea.style.left = "-9999px";
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand("copy");
-        document.body.removeChild(textarea);
+        toast.success(isZh ? `${label}已复制` : `${label} copied`);
+        return;
+      } catch {
+        // 降级到方法2
       }
-      toast.success(isZh ? `${label}已复制` : `${label} copied`);
-    } catch {
-      toast.error(isZh ? "复制失败，请手动复制" : "Copy failed, please copy manually");
     }
+    // 方法2：textarea + execCommand（兼容旧版/移动端浏览器）
+    try {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.cssText = "position:fixed;top:0;left:0;width:2em;height:2em;padding:0;border:none;outline:none;box-shadow:none;background:transparent;opacity:0;";
+      document.body.appendChild(textarea);
+      // 移动端需要 setSelectionRange 才能真正选中
+      textarea.focus();
+      textarea.setSelectionRange(0, textarea.value.length);
+      textarea.select();
+      const success = document.execCommand("copy");
+      document.body.removeChild(textarea);
+      if (success) {
+        toast.success(isZh ? `${label}已复制` : `${label} copied`);
+        return;
+      }
+    } catch {
+      // 降级到方法3
+    }
+    // 方法3：提示用户手动复制（显示文本供长按复制）
+    toast.error(isZh ? `复制失败，请长按手动复制：${text}` : `Copy failed, please copy manually: ${text}`, { duration: 6000 });
   };
 
   return (

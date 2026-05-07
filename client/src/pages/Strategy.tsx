@@ -17,7 +17,7 @@ import { Link } from "wouter";
 import { useLang } from "@/contexts/LangContext";
 import { STRATEGY_RISK } from "@/lib/agreements";
 
-const QUICK_MULTIPLIERS = [1, 2, 5, 10, 20, 50, 100];
+const QUICK_MULTIPLIERS = [1, 2, 5, 10, 20, 50, 100, 200];
 
 export default function Strategy() {
   const utils = trpc.useUtils();
@@ -76,7 +76,7 @@ export default function Strategy() {
   };
 
   const handleMultiplierChange = (val: number) => {
-    const clamped = Math.max(0.1, Math.min(100, val));
+    const clamped = Math.max(0.1, Math.min(200, val));
     setMultiplier(clamped);
     setMultiplierInput(clamped.toString());
   };
@@ -84,7 +84,7 @@ export default function Strategy() {
   const handleMultiplierInput = (val: string) => {
     setMultiplierInput(val);
     const num = parseFloat(val);
-    if (!isNaN(num) && num >= 0.1 && num <= 100) {
+    if (!isNaN(num) && num >= 0.1 && num <= 200) {
       setMultiplier(num);
     }
   };
@@ -98,8 +98,8 @@ export default function Strategy() {
       toast.error(lang === "zh" ? "请选择策略" : "Please select a strategy");
       return;
     }
-    if (multiplier < 0.1 || multiplier > 100) {
-      toast.error(lang === "zh" ? "数量倍数范围为 0.1-100" : "Multiplier must be between 0.1 and 100");
+    if (multiplier < 0.1 || multiplier > 200) {
+      toast.error(lang === "zh" ? "数量倍数范围为 0.1-200" : "Multiplier must be between 0.1 and 200");
       return;
     }
     if (isEnabled && !allRiskChecked) {
@@ -322,13 +322,13 @@ export default function Strategy() {
                       <Input
                         type="number"
                         min={0.1}
-                        max={100}
+                        max={200}
                         value={multiplierInput}
                         onChange={(e) => handleMultiplierInput(e.target.value)}
                         onBlur={() => {
                           const num = parseFloat(multiplierInput);
                           if (isNaN(num) || num < 0.1) handleMultiplierChange(1);
-                          else if (num > 100) handleMultiplierChange(100);
+                          else if (num > 200) handleMultiplierChange(200);
                           else handleMultiplierChange(num);
                         }}
                         className="w-20 bg-input border-border text-center text-sm font-bold"
@@ -336,12 +336,12 @@ export default function Strategy() {
                       <span className="text-sm font-bold text-primary">x</span>
                     </div>
                   </div>
-                  <Slider min={1} max={100} step={1} value={[multiplier]} onValueChange={([v]) => handleMultiplierChange(v)} className="w-full" />
+                  <Slider min={1} max={200} step={1} value={[multiplier]} onValueChange={([v]) => handleMultiplierChange(v)} className="w-full" />
                   <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>1x</span><span>100x</span>
+                    <span>1x</span><span>200x</span>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {lang === "zh" ? "可在输入框手动输入 0.1–100 之间的任意值" : "You may manually enter any value between 0.1 and 100"}
+                    {lang === "zh" ? "可在输入框手动输入 0.1–200 之间的任意值" : "You may manually enter any value between 0.1 and 200"}
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {QUICK_MULTIPLIERS.map((m) => (

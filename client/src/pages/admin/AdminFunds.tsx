@@ -139,7 +139,18 @@ export default function AdminFunds() {
   });
 
   const collectMutation = trpc.funds.adminCollectDeposits.useMutation({
-    onSuccess: (data) => { toast.success(`归集完成: ${data.collected} 笔成功${data.errors.length ? `，${data.errors.length} 笔失败` : ""}`); },
+    onSuccess: (data) => {
+      const gasErrors = data.errors.filter((e: string) => e.includes('Gas send'));
+      const collectErrors = data.errors.filter((e: string) => !e.includes('Gas send'));
+      if (data.collected === 0 && data.errors.length === 0) {
+        toast.success('归集完成：暂无需要归集的地址（余额均不足 1 USDT）');
+      } else {
+        let msg = `归集完成：${data.collected} 笔成功`;
+        if (gasErrors.length > 0) msg += `，${gasErrors.length} 个地址 Gas 费发送失败（USDT 仍在子地址，可稍后重试）`;
+        if (collectErrors.length > 0) msg += `，${collectErrors.length} 笔归集异常`;
+        toast.success(msg);
+      }
+    },
     onError: (e: any) => toast.error(e.message),
   });
 

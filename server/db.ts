@@ -279,6 +279,13 @@ export async function getUserReferralChain(userId: number): Promise<Array<{ id: 
 export async function getDirectReferralCount(userId: number, minDepositAmount: number): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
+  // When minDepositAmount is 0, all registered direct referrals are valid
+  if (minDepositAmount <= 0) {
+    const [result] = await db.select({ count: sql<number>`count(*)` })
+      .from(users)
+      .where(eq(users.referrerId, userId));
+    return Number(result.count);
+  }
   // A valid user is one whose cumulative approved deposits >= minDepositAmount
   const [result] = await db.select({ count: sql<number>`count(DISTINCT ${users.id})` })
     .from(users)
@@ -759,7 +766,8 @@ export async function listAllCopyOrdersWithUser(
     .from(copyOrders)
     .leftJoin(users, eq(copyOrders.userId, users.id))
     .where(whereClause);
-  const statsConditions = [...conditions, sql`${copyOrders.action} IN ('close_long', 'close_short')`];
+  // Stats: count all closed orders (consistent with dashboard), not just close_long/close_short signals
+  const statsConditions = [...conditions, eq(copyOrders.status, "closed")];
   const statsWhere = and(...statsConditions);
   const [statsResult] = await db
     .select({
@@ -797,7 +805,7 @@ export async function getUserOrderStats(userId: number) {
     and(
       eq(copyOrders.userId, userId),
       ne(copyOrders.status, "cancelled"),
-      sql`action IN ('close_long', 'close_short')`
+      eq(copyOrders.status, "closed")
     )
   );
   const openResult = await db.select({
@@ -936,7 +944,6 @@ export async function getUserRevenueShareStats(userId: number) {
     .from(copyOrders).where(
       and(
         eq(copyOrders.userId, userId),
-        sql`action IN ('close_long', 'close_short')`,
         eq(copyOrders.status, 'closed')
       )
     );
@@ -1300,12 +1307,12 @@ export async function getAdminDashboardStats() {
     totalLoss: sql<string>`COALESCE(SUM(CASE WHEN netPnl < 0 THEN ABS(netPnl) ELSE 0 END), 0)`,
     totalDeducted: sql<string>`COALESCE(SUM(revenueShareDeducted), 0)`,
     abnormal: sql<number>`SUM(CASE WHEN isAbnormal = 1 THEN 1 ELSE 0 END)`,
-  }).from(copyOrders).where(sql`action IN ('close_long', 'close_short') AND status = 'closed'`);
+  }).from(copyOrders).where(sql`status = 'closed'`);
   const [shareStats] = await db.select({
     total: sql<string>`COALESCE(SUM(${revenueShareRecords.amount}), 0)`,
   }).from(revenueShareRecords)
     .innerJoin(copyOrders, eq(revenueShareRecords.copyOrderId, copyOrders.id))
-    .where(sql`${copyOrders.action} IN ('close_long', 'close_short') AND ${copyOrders.status} = 'closed'`);
+    .where(sql`${copyOrders.status} = 'closed'`);
   const totalDeducted = parseFloat(orderStats.totalDeducted || "0");
   const totalRevenueShare = parseFloat(shareStats.total || "0");
   return {
@@ -1328,10 +1335,10 @@ export async function getTeamStats(userId: number) {
   if (!db) return { directCount: 0, directValidCount: 0, totalCount: 0, teamProfit: 0, teamRevenueShare: 0, umbrellaPerformance: 0, pLevel: 0 };
   // Direct referrals count (all)
   const [direct] = await db.select({ count: sql<number>`count(*)` }).from(users).where(eq(users.referrerId, userId));
-  // Direct valid referrals (balance >= 100)
+  // Direct valid referrals (all registered users count as valid)
   const [directValid] = await db.select({ count: sql<number>`count(*)` })
     .from(users)
-    .where(and(eq(users.referrerId, userId), gte(users.balance, "100")));
+    .where(eq(users.referrerId, userId));
   // Recursively collect ALL team member IDs across all levels (BFS)
   const allTeamIds: number[] = [];
   let currentLevelIds = (await db.select({ id: users.id }).from(users).where(eq(users.referrerId, userId))).map(m => m.id);
@@ -1349,7 +1356,7 @@ export async function getTeamStats(userId: number) {
   if (allTeamIds.length > 0) {
     const safeTeamIds = allTeamIds.map(id => parseInt(String(id), 10)).filter(id => !isNaN(id));
     const [profitResult] = await db.select({ total: sql<string>`COALESCE(SUM(netPnl), 0)` })
-      .from(copyOrders).where(sql`userId IN (${sql.raw(safeTeamIds.join(","))}) AND action IN ('close_long', 'close_short') AND status = 'closed'`);
+      .from(copyOrders).where(sql`userId IN (${sql.raw(safeTeamIds.join(","))}) AND status = 'closed'`);
     teamProfit = parseFloat(profitResult.total || "0");
   }
   // Revenue share received
@@ -1359,7 +1366,6 @@ export async function getTeamStats(userId: number) {
     .where(
       and(
         eq(revenueShareRecords.recipientId, userId),
-        sql`${copyOrders.action} IN ('close_long', 'close_short')`,
         eq(copyOrders.status, 'closed')
       )
     );
@@ -1402,13 +1408,49 @@ export async function getTeamStats(userId: number) {
 export async function getMyInvitees(userId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select({
+  const invitees = await db.select({
     id: users.id,
     name: users.name,
     email: users.email,
     balance: users.balance,
     pLevel: users.pLevel,
+    umbrellaPerformance: users.umbrellaPerformance,
     isActive: users.isActive,
     createdAt: users.createdAt,
   }).from(users).where(eq(users.referrerId, userId)).orderBy(sql`${users.createdAt} DESC`);
+
+  // For each invitee, calculate their direct performance, umbrella total performance, and umbrella total count
+  const result = await Promise.all(invitees.map(async (inv) => {
+    // directPerformance: the invitee's own umbrellaPerformance (their exchange account balance)
+    const directPerformance = parseFloat(inv.umbrellaPerformance || "0");
+    // umbrellaTotalPerformance & umbrellaTotalCount: BFS over entire subtree
+    let umbrellaTotalPerformance = directPerformance;
+    let umbrellaTotalCount = 1; // count the invitee themselves
+    const visitedIds = new Set<number>([inv.id]); // prevent infinite loops
+    let currentLevelIds = [inv.id];
+    while (currentLevelIds.length > 0) {
+      const safeIds = currentLevelIds.map(id => parseInt(String(id), 10)).filter(id => !isNaN(id));
+      if (safeIds.length === 0) break;
+      const nextLevel = await db!
+        .select({ id: users.id, umbrellaPerformance: users.umbrellaPerformance })
+        .from(users)
+        .where(sql`referrerId IN (${sql.raw(safeIds.join(","))})`);
+      const newIds: number[] = [];
+      for (const u of nextLevel) {
+        if (visitedIds.has(u.id)) continue; // skip already-visited nodes
+        visitedIds.add(u.id);
+        umbrellaTotalPerformance += parseFloat(u.umbrellaPerformance || "0");
+        umbrellaTotalCount++;
+        newIds.push(u.id);
+      }
+      currentLevelIds = newIds;
+    }
+    return {
+      ...inv,
+      directPerformance,
+      umbrellaTotalPerformance,
+      umbrellaTotalCount,
+    };
+  }));
+  return result;
 }

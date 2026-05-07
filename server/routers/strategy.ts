@@ -69,7 +69,7 @@ export const strategyRouter = router({
     .input(z.object({
       signalSourceId: z.number(),
       exchangeApiId: z.number(),
-      multiplier: z.number().min(0.1).max(100),
+      multiplier: z.number().min(0.1).max(200),
       isEnabled: z.boolean(),
     }))
     .mutation(async ({ input, ctx }) => {

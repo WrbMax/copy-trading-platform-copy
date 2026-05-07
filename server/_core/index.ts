@@ -9,6 +9,7 @@ import { serveStatic, setupVite } from "./vite";
 import { startAutoScan, sendUsdtFromMaster } from "../bsc-wallet";
 import { startCopyEngine } from "../copy-engine";
 import { startDailyPerformanceUpdate } from "../daily-performance-update";
+import { startPnlRecovery } from "../pnl-recovery";
 import { listWithdrawals, updateWithdrawal, addFundTransaction, getUserById, getSystemConfig, claimWithdrawalForProcessing } from "../db";
 
 // ─── Withdrawal Retry Timer ───────────────────────────────────────────────────────
@@ -107,13 +108,44 @@ function isPortAvailable(port: number): Promise<boolean> {
   });
 }
 
-async function findAvailablePort(startPort: number = 3000): Promise<number> {
-  for (let port = startPort; port < startPort + 20; port++) {
-    if (await isPortAvailable(port)) {
-      return port;
-    }
+/**
+ * Kill any stray process occupying the target port,
+ * excluding the current process itself to avoid self-termination.
+ * Then wait up to 3 seconds for the OS to reclaim it.
+ */
+async function killPortOccupant(port: number): Promise<void> {
+  const { exec } = await import("child_process");
+  const selfPid = process.pid;
+  // Use fuser to find PIDs occupying the port, then kill only those that are NOT self
+  await new Promise<void>((resolve) => {
+    exec(`fuser ${port}/tcp 2>/dev/null`, (err, stdout) => {
+      const pids = stdout.trim().split(/\s+/).filter(p => p && p !== String(selfPid));
+      if (pids.length === 0) { resolve(); return; }
+      exec(`kill -9 ${pids.join(' ')} 2>/dev/null || true`, () => resolve());
+    });
+  });
+  // Wait up to 3 seconds for port to be released
+  for (let i = 0; i < 30; i++) {
+    await new Promise(r => setTimeout(r, 100));
+    if (await isPortAvailable(port)) return;
   }
-  throw new Error(`No available port found starting from ${startPort}`);
+}
+
+/**
+ * Ensure the preferred port is available.
+ * If occupied, kill the occupant and retry once.
+ * Throws if the port is still busy after the kill attempt,
+ * so PM2 will restart the process instead of silently using a wrong port.
+ */
+async function ensurePort(preferredPort: number): Promise<number> {
+  if (await isPortAvailable(preferredPort)) return preferredPort;
+  console.warn(`[Server] Port ${preferredPort} is occupied by a stray process — killing it...`);
+  await killPortOccupant(preferredPort);
+  if (await isPortAvailable(preferredPort)) {
+    console.log(`[Server] Port ${preferredPort} reclaimed successfully.`);
+    return preferredPort;
+  }
+  throw new Error(`[Server] Port ${preferredPort} is still occupied after kill attempt. Aborting so PM2 can restart.`);
 }
 
 async function startServer() {
@@ -138,11 +170,7 @@ async function startServer() {
   }
 
   const preferredPort = parseInt(process.env.PORT || "3000");
-  const port = await findAvailablePort(preferredPort);
-
-  if (port !== preferredPort) {
-    console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
-  }
+  const port = await ensurePort(preferredPort);
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
@@ -154,6 +182,8 @@ async function startServer() {
     startWithdrawalRetryTimer();
     // Start daily performance update (runs at 00:00 UTC+8 every day)
     startDailyPerformanceUpdate();
+    // Start PnL recovery scheduler (runs at startup + every 10 minutes)
+    startPnlRecovery();
   });
 }
 

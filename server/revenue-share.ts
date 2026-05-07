@@ -21,7 +21,7 @@ import {
  *   - REVENUE_POOL_RATE (20%): distributed to referral chain as rewards (treated as 100% of pool).
  *   - LIQUIDITY_POOL_RATE (20%): accumulated into the platform liquidity pool.
  *
- * VALID_USER_MIN_BALANCE: A user who has deposited >= 100 USDT (cumulative approved deposits) is considered a "valid user".
+ * VALID_USER_MIN_BALANCE: All registered users are considered "valid users" (no deposit threshold required).
  * Valid user status ONLY affects whether an ancestor qualifies for the direct referral reward.
  *
  * Direct Referral Reward: based on number of valid direct referrals
@@ -39,7 +39,7 @@ const TOTAL_DEDUCTION_RATE = 0.40; // 40% of net profit total deduction
 const REVENUE_POOL_RATE = 0.20;    // 20% → distributed to referral chain
 const LIQUIDITY_POOL_RATE = 0.20;  // 20% → platform liquidity pool
 const LIQUIDITY_POOL_CONFIG_KEY = "liquidity_pool_balance";
-const VALID_USER_MIN_BALANCE = 100; // 100 USDT
+const VALID_USER_MIN_BALANCE = 0; // All registered users count as valid (no deposit threshold)
 
 // ─── Direct Referral Reward Tiers ──────────────────────────────────────────────
 // Sorted descending so we can find the highest qualifying tier first

@@ -408,17 +408,17 @@ export default function Team() {
                   <thead>
                     <tr className="border-b border-border">
                       {(isZh
-                        ? ["成员", "邮箱", "余额", "身份", "状态", "加入时间", "操作"]
-                        : ["Member", "Email", "Balance", "Rank", "Status", "Joined", "Action"]
+                        ? ["成员", "邮箱", "余额", "身份", "直接业绩", "伞下总业绩", "伞下总人数", "状态", "加入时间", "操作"]
+                        : ["Member", "Email", "Balance", "Rank", "Direct Perf.", "Total Perf.", "Total Members", "Status", "Joined", "Action"]
                       ).map((h) => (
                         <th key={h} className="text-left px-4 py-3 text-muted-foreground font-medium">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {invitees.map((inv: any) => {
+                      {invitees.map((inv: any) => {
                       const invBalance = parseFloat(inv.balance || "0");
-                      const isValid = invBalance >= 100;
+                      const isValid = true; // All registered users are valid
                       const invPLevel = inv.pLevel ?? 0;
                       return (
                         <tr key={inv.id} className="border-b border-border/50 hover:bg-secondary/30">
@@ -433,6 +433,21 @@ export default function Team() {
                           <td className="px-4 py-3">
                             <span className={`px-2 py-0.5 rounded-full text-xs ${P_LEVEL_COLORS[invPLevel]}`}>
                               {isZh ? P_LEVEL_NAMES[invPLevel] : P_LEVEL_NAMES_EN[invPLevel]}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-xs">
+                            <span className="text-amber-400 font-medium">
+                              {(inv.directPerformance ?? 0).toFixed(2)} USDT
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-xs">
+                            <span className="text-sky-400 font-medium">
+                              {(inv.umbrellaTotalPerformance ?? 0).toFixed(2)} USDT
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-xs">
+                            <span className="text-purple-400 font-medium">
+                              {inv.umbrellaTotalCount ?? 0} {isZh ? "人" : ""}
                             </span>
                           </td>
                           <td className="px-4 py-3">
